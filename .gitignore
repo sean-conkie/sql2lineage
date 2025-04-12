@@ -170,3 +170,7 @@ cython_debug/
 # jupyter
 **/*.ipynb
 notebooks/*
+
+# exclude SQL unless it is in tests folder
+*.sql
+!tests/**/*.sql

@@ -1,7 +1,52 @@
 [project]
 name = "sql2lineage"
-version = "0.1.0"
+dynamic = [ "version" ]
 description = "Create lineage graphs from SQL queries"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "networkx>=3.4.2",
+    "sqlglot>=26.13.0",
+]
+
+[tool.uv]
+dev-dependencies = [
+    "ipykernel>=6.29.5",
+    "pyright>=1.1.399",
+    "ruff>=0.11.5",
+]
+
+[[project.authors]]
+name = "Sean Conkie"
+email = "sean.conkie@sky.uk"
+
+[tool.isort]
+profile = "black"
+
+[tool.pydocstyle]
+convention = "google"
+
+[tool.ruff]
+respect-gitignore = true
+line-length = 120
+indent-width = 4
+show-fixes = true
+unsafe-fixes = true
+target-version = "py312"
+
+[tool.pyright]
+exclude = [ "venv" ]
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.12"
+reportMissingImports = true
+reportMissingTypeStubs = false
+
+
+[tool.ruff.lint]
+select = [ "D", "E", "F", "I", "N", "W",]
+ignore = [ "D107", "D203", "D213", "D400", "D408", "D407", "D409", "D105",]
+
+[tool.setuptools.dynamic.version]
+attr = "src.sql2lineage.__version__"
+
