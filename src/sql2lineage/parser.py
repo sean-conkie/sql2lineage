@@ -7,7 +7,7 @@ from typing import List, Optional, Tuple
 
 import sqlglot
 from sqlglot.dialects.dialect import DialectType
-from sqlglot.expressions import Column, Create, Table
+from sqlglot.expressions import CTE, Column, Create, Subquery, Table
 
 
 class SQLLineageParser:
@@ -41,26 +41,27 @@ class SQLLineageParser:
 
         output_table = None
         source_tables = set()
-        column_lineage = []
+        column_lineage = set()
+
+        def process_expression(expression):
+            for node in expression.walk():
+                if isinstance(node, Table):
+                    source_tables.add(node.name)
+
+                if isinstance(node, Column):
+                    col_name = node.alias_or_name
+                    if len(node.parts) >= 2:
+                        source = f"{node.parts[-2]}.{node.parts[-1]}"
+                    else:
+                        source = node.name
+                    column_lineage.add((col_name, source))
 
         for node in parsed:
-            if not node:
-                continue
+            if isinstance(node, Create):
+                output_table = node.this.name
+                process_expression(node)
 
-            for expression in node.walk():
+            elif isinstance(node, (CTE, Subquery)):
+                process_expression(node)
 
-                if isinstance(expression, Create):
-                    output_table = expression.this.name
-
-                if isinstance(expression, Table):
-                    source_tables.add(expression.name)
-
-                if isinstance(expression, Column):
-                    column_lineage.append(
-                        (
-                            expression.alias_or_name,
-                            ".".join([part.name for part in expression.parts]),
-                        )
-                    )
-
-        return output_table, list(source_tables), column_lineage
+        return output_table, list(source_tables), list(column_lineage)
