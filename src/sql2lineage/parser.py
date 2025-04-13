@@ -117,6 +117,21 @@ class SQLLineageParser:
         return parsed_expression
 
     def extract_lineage(self, sql: str, dialect: Optional[DialectType] = None):
+        """Extract the lineage information from the given SQL query.
+
+        This method parses the provided SQL string using the specified SQL dialect
+        (or the default dialect if none is provided) and processes each parsed
+        expression to extract lineage details.
+
+        Args:
+            sql (str): The SQL query string to extract lineage from.
+            dialect (Optional[DialectType]): The SQL dialect to use for parsing.
+                If not provided, the default dialect of the instance is used.
+
+        Returns:
+            ParsedResult: An object containing the extracted lineage information.
+
+        """
         parsed = sqlglot.parse(sql, read=dialect or self._dialect)
         result = ParsedResult()
 
