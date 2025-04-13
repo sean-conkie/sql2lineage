@@ -3,7 +3,7 @@
 This module defines a LineageGraph class that uses NetworkX to represent.
 """
 
-from typing import List, Set
+from typing import List, Literal, Set
 
 import networkx as nx
 
@@ -15,6 +15,11 @@ class LineageGraph:
 
     This class represents a directed graph for lineage tracking using NetworkX.
     """
+
+    _attrs = (
+        "type",
+        "action",
+    )
 
     def __init__(self):
         self.graph = nx.DiGraph()
@@ -70,18 +75,13 @@ class LineageGraph:
                  "source_node --> target_node".
 
         """
-        _attrs = (
-            "type",
-            "action",
-        )
-
         _str = []
 
         for u, v, d in self.graph.edges(data=True):
 
             types_string = ""
             _types = []
-            for attr in _attrs:
+            for attr in self._attrs:
                 if d.get(attr):
                     _types.append(f"{attr}: {d[attr]}")
 
@@ -111,3 +111,73 @@ class LineageGraph:
         for expression in parsed_expressions:
             self.add_table_edges(expression.tables)
             self.add_column_edges(expression.columns)
+
+    def is_root_node(
+        self, node: str, node_type: Literal["COLUMN", "TABLE"] = "COLUMN"
+    ) -> bool:
+        """Determine if a given node is a root node in the graph.
+
+        A root node is defined as a node that has no incoming edges of the specified type.
+
+        Args:
+            node (str): The name of the node to check.
+            node_type (Literal["COLUMN", "TABLE"], optional): The type of the node to check for.
+                Defaults to "COLUMN".
+
+        Returns:
+            bool: True if the node is a root node of the specified type, False otherwise.
+
+        """
+        return all(
+            self.graph.edges[u, node]["type"] != node_type
+            for u in self.graph.predecessors(node)
+        )
+
+    def get_node_lineage(
+        self, node: str, node_type: Literal["COLUMN", "TABLE"] = "COLUMN"
+    ):
+        """Retrieve the lineage of a specific node in the graph.
+
+        This method identifies all possible paths from the root nodes (true sources)
+        to the specified node and provides detailed information about each step in
+        the lineage.
+
+        Args:
+            node (str): The target node for which lineage is to be retrieved.
+            node_type (Literal["COLUMN", "TABLE"], optional): The type of the node.
+                Defaults to "COLUMN".
+
+        Returns:
+            List[List[Dict[str, Any]]]: A list of chains, where each chain is a list
+            of dictionaries representing the steps in the lineage. Each dictionary
+            contains:
+                - "from" (str): The source node of the edge.
+                - "to" (str): The destination node of the edge.
+                - Additional attributes of the edge, if present in the graph.
+
+        """
+        chains = []
+        ancestors = nx.ancestors(self.graph, node)
+        # Step 1: Identify root nodes (true sources)
+        root_nodes = [node for node in ancestors if self.is_root_node(node, node_type)]
+
+        for source in root_nodes:
+            for path in nx.all_simple_paths(self.graph, source, node):
+                step_info = []
+                for i in range(len(path) - 1):
+                    u, v = path[i], path[i + 1]
+                    edge = self.graph.get_edge_data(u, v)
+
+                    lineage_result = {
+                        "source": u,
+                        "target": v,
+                    }
+
+                    for attr in self._attrs:
+                        if edge.get(attr):
+                            lineage_result[attr] = edge[attr]
+
+                    step_info.append(lineage_result)
+                chains.append(step_info)
+
+        return chains
