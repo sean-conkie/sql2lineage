@@ -3,11 +3,21 @@
 This module provides a class to parse SQL queries and extract lineage information.
 """
 
-from typing import List, Optional, Tuple
+# pylint: disable=no-member
+
+from typing import Optional
 
 import sqlglot
 from sqlglot.dialects.dialect import DialectType
-from sqlglot.expressions import CTE, Column, Create, Subquery, Table
+from sqlglot.expressions import (
+    CTE,
+    Expression,
+    From,
+    Join,
+    Subquery,
+)
+
+from sql2lineage.model import ParsedExpression, ParsedResult, SourceTable
 
 
 class SQLLineageParser:
@@ -16,52 +26,104 @@ class SQLLineageParser:
     def __init__(self, dialect: Optional[DialectType] = None):
         self._dialect = dialect
 
-    def extract_lineage(
-        self, sql: str, dialect: Optional[DialectType] = None
-    ) -> Tuple[str | None, List[str], List[Tuple[str, str]]]:
-        """Extract lineage information from a parsed SQL query.
+    def _parse_expression(self, expression: Expression, index: int) -> ParsedExpression:
+        parsed_expression = ParsedExpression(
+            output_table=expression.this.name or f"expr{index:03}"
+        )
 
-        This method analyzes the parsed SQL query and extracts the following:
-        - The output table name (if a CREATE statement is present).
-        - A list of source table names referenced in the query.
-        - A list of column lineage mappings, where each mapping is a tuple containing
-          the column alias or name and its fully qualified name.
+        for cte in expression.find_all(CTE):
 
-        Returns:
-            Tuple[str, List[str], List[Tuple[str, str]]]: A tuple containing:
-                - The name of the output table (str) or None if not found.
-                - A list of source table names (List[str]).
-                - A list of column lineage mappings (List[Tuple[str, str]]).
+            # CTE creates an alias for the table
+            cte_output_table = cte.alias_or_name
 
-        """
-        assert any(
-            [dialect, self._dialect]
-        ), "Either 'dialect' or 'self._dialect' must be provided."
+            # find the source table for the CTE
+            for source in cte.find_all(From):
+                parsed_expression.source_tables.add(
+                    SourceTable(
+                        output_table=cte_output_table,
+                        source_table=".".join(
+                            [identifier.name for identifier in source.this.parts]
+                        ),
+                        alias=source.alias_or_name,
+                    )
+                )
+
+            # create a default source table
+            source_table = cte.find(From)
+            if source_table:
+                source_table = ".".join(
+                    [identifier.name for identifier in source_table.this.parts]
+                )
+
+            parsed_expression.update_column_lineage(cte, source_table)
+
+        # find joins for the main query
+        for join in expression.find_all(Join):
+            subqueries = list(join.find_all(Subquery))
+            if subqueries:
+                for subquery in subqueries:
+
+                    parsed_expression.subqueries[subquery.alias_or_name] = (
+                        self._parse_expression(subquery, index)
+                    )
+
+                    for source in subquery.find_all(From):
+                        parsed_expression.source_tables.add(
+                            SourceTable(
+                                output_table=parsed_expression.output_table,
+                                source_table=".".join(
+                                    [
+                                        identifier.name
+                                        for identifier in source.this.parts
+                                    ]
+                                ),
+                                alias=source.name,
+                            )
+                        )
+
+            else:
+                source = join.find(From)
+                if not source:
+                    continue
+                source_table = ".".join(
+                    [identifier.name for identifier in source.this.parts]
+                )
+                parsed_expression.source_tables.add(
+                    SourceTable(
+                        output_table=parsed_expression.output_table,
+                        source_table=source_table,
+                        alias=join.alias_or_name,
+                    ),
+                )
+
+        # find the source tables for the main query
+        source_table = None
+        source = expression.find(From)
+        if source:
+            source_table = ".".join(
+                [identifier.name for identifier in source.this.parts]
+            )
+            parsed_expression.source_tables.add(
+                SourceTable(
+                    output_table=parsed_expression.output_table,
+                    source_table=source_table,
+                    alias=source.alias_or_name,
+                ),
+            )
+
+        # find the columns for the main query
+        parsed_expression.update_column_lineage(expression, source_table)
+
+        return parsed_expression
+
+    def extract_lineage(self, sql: str, dialect: Optional[DialectType] = None):
         parsed = sqlglot.parse(sql, read=dialect or self._dialect)
+        result = ParsedResult()
 
-        output_table = None
-        source_tables = set()
-        column_lineage = set()
+        for i, expression in enumerate(parsed):
+            if expression is None:
+                continue
 
-        def process_expression(expression):
-            for node in expression.walk():
-                if isinstance(node, Table):
-                    source_tables.add(node.name)
+            result.add(self._parse_expression(expression, i))
 
-                if isinstance(node, Column):
-                    col_name = node.alias_or_name
-                    if len(node.parts) >= 2:
-                        source = f"{node.parts[-2]}.{node.parts[-1]}"
-                    else:
-                        source = node.name
-                    column_lineage.add((col_name, source))
-
-        for node in parsed:
-            if isinstance(node, Create):
-                output_table = node.this.name
-                process_expression(node)
-
-            elif isinstance(node, (CTE, Subquery)):
-                process_expression(node)
-
-        return output_table, list(source_tables), list(column_lineage)
+        return result
