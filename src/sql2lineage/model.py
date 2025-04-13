@@ -67,39 +67,54 @@ class ParsedExpression(BaseModel):
 
         Returns:
             dict: A dictionary containing the serialized data with the following structure:
-                - "output_table" (str): The name of the output table.
-                - "column_lineage" (list): A list of dictionaries, each representing a column lineage with:
-                    - "output_table" (str): The name of the output table for the column.
+                - "target" (str): The name of the output table.
+                - "columns" (list): A list of dictionaries, each representing a column lineage with:
+                    - "target" (str): The name of the output table for the column.
                     - "column" (str): The name of the column.
-                    - "source_column" (str): The source column from which the current column is derived.
+                    - "source" (str): The source column from which the current column is derived.
                     - "action" (str): The transformation or action applied to the column.
-                - "source_tables" (list): A list of dictionaries, each representing a source table with:
-                    - "output_table" (str): The name of the output table.
-                    - "source_table" (str): The name of the source table.
+                - "tables" (list): A list of dictionaries, each representing a source table with:
+                    - "target" (str): The name of the output table.
+                    - "source" (str): The name of the source table.
                     - "alias" (str): The alias used for the source table.
                 - "subqueries" (dict): A dictionary where keys are subquery identifiers and values are the serialized
                   dictionary representations of the subqueries.
 
         """
         return {
-            "output_table": self.target,
-            "column_lineage": [
-                {
-                    "output_table": col.target,
-                    "column": col.column,
-                    "source_column": col.source,
-                    "action": col.action,
-                }
-                for col in self.columns
-            ],
-            "source_tables": [
-                {
-                    "output_table": src.target,
-                    "source_table": src.source,
-                    "alias": src.alias,
-                }
-                for src in self.tables
-            ],
+            "target": self.target,
+            "columns": sorted(
+                [
+                    {
+                        "target": col.target,
+                        "column": col.column,
+                        "source": col.source,
+                        "action": col.action,
+                    }
+                    for col in self.columns
+                ],
+                key=lambda entry: (
+                    entry["target"],
+                    entry["column"],
+                    entry["source"],
+                    entry["action"],
+                ),
+            ),
+            "tables": sorted(
+                [
+                    {
+                        "target": src.target,
+                        "source": src.source,
+                        "alias": src.alias,
+                    }
+                    for src in self.tables
+                ],
+                key=lambda entry: (
+                    entry["target"],
+                    entry["source"],
+                    entry["alias"],
+                ),
+            ),
             "subqueries": {
                 key: value.serialise_to_dict() for key, value in self.subqueries.items()
             },
@@ -244,10 +259,10 @@ class ParsedResult(BaseModel):
     _expressions: list[ParsedExpression] = PrivateAttr(
         default_factory=list,
     )
-    _column_lineage: Set[ColumnLineage] = PrivateAttr(
+    _columns: Set[ColumnLineage] = PrivateAttr(
         default_factory=set,
     )
-    _source_tables: Set[SourceTable] = PrivateAttr(
+    _tables: Set[SourceTable] = PrivateAttr(
         default_factory=set,
     )
 
@@ -259,16 +274,84 @@ class ParsedResult(BaseModel):
 
     @computed_field
     @property
-    def column_lineage(self) -> Set[ColumnLineage]:
+    def columns(self) -> Set[ColumnLineage]:
         """List of column lineage information."""
-        return self._column_lineage
+        return self._columns
+
+    @computed_field
+    @property
+    def tables(self) -> Set[SourceTable]:
+        """List of source tables."""
+        return self._tables
 
     def add(self, expression: ParsedExpression) -> None:
         """Add a parsed expression to the result."""
         self._expressions.append(expression)
 
-        for lineage in list(expression.columns or []):
-            self._column_lineage.add(lineage)
+        for column in list(expression.columns or []):
+            self._columns.add(column)
 
-        for source_table in list(expression.tables or []):
-            self._source_tables.add(source_table)
+        for table in list(expression.tables or []):
+            self._tables.add(table)
+
+    @model_serializer
+    def serialise_to_dict(self):
+        """Serialize the current object into a dictionary representation.
+
+        Returns:
+            dict: A dictionary containing the serialized data with the following keys:
+                - "expressions": A list of serialized expressions, where each expression
+                  is represented as a dictionary obtained by calling `serialise_to_dict`
+                  on each expression in `self._expressions`.
+                - "columns": A sorted list of dictionaries representing columns, where
+                  each dictionary contains:
+                    - "target": The target of the column.
+                    - "column": The column name.
+                    - "source": The source of the column.
+                    - "action": The action performed on the column.
+                  The list is sorted by the tuple (target, column, source, action).
+                - "tables": A sorted list of dictionaries representing tables, where
+                  each dictionary contains:
+                    - "target": The target of the table.
+                    - "source": The source of the table.
+                    - "alias": The alias of the table.
+                  The list is sorted by the tuple (target, source, alias).
+
+        """
+        return {
+            "expressions": [
+                expression.serialise_to_dict() for expression in self._expressions
+            ],
+            "columns": sorted(
+                [
+                    {
+                        "target": col.target,
+                        "column": col.column,
+                        "source": col.source,
+                        "action": col.action,
+                    }
+                    for col in self._columns
+                ],
+                key=lambda entry: (
+                    entry["target"],
+                    entry["column"],
+                    entry["source"],
+                    entry["action"],
+                ),
+            ),
+            "tables": sorted(
+                [
+                    {
+                        "target": src.target,
+                        "source": src.source,
+                        "alias": src.alias,
+                    }
+                    for src in self._tables
+                ],
+                key=lambda entry: (
+                    entry["target"],
+                    entry["source"],
+                    entry["alias"],
+                ),
+            ),
+        }
