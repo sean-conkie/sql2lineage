@@ -26,6 +26,8 @@ dev-dependencies = [
     "pytest-cov>=6.1.1",
     "pytest-mock>=3.14.0",
     "ruff>=0.11.5",
+    "pytest-html>=4.1.1",
+    "coverage>=7.8.0",
 ]
 
 [[project.authors]]
