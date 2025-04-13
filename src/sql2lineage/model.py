@@ -166,7 +166,7 @@ class ParsedExpression(BaseModel):
     def update_column_lineage(
         self,
         expression: Expression,
-        source: Optional[str],
+        source: Optional[str] = None,
         target: Optional[str] = None,
     ):
         """Update the column lineage information based on the provided SQL expression.
