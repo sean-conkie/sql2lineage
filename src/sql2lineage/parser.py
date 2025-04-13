@@ -28,7 +28,7 @@ class SQLLineageParser:
 
     def _parse_expression(self, expression: Expression, index: int) -> ParsedExpression:
         parsed_expression = ParsedExpression(
-            output_table=expression.this.name or f"expr{index:03}"
+            target=expression.this.name or f"expr{index:03}"
         )
 
         for cte in expression.find_all(CTE):
@@ -38,7 +38,7 @@ class SQLLineageParser:
 
             # find the source table for the CTE
             for source in cte.find_all(From):
-                parsed_expression.source_tables.add(
+                parsed_expression.tables.add(
                     SourceTable(
                         output_table=cte_output_table,
                         source_table=".".join(
@@ -68,9 +68,9 @@ class SQLLineageParser:
                     )
 
                     for source in subquery.find_all(From):
-                        parsed_expression.source_tables.add(
+                        parsed_expression.tables.add(
                             SourceTable(
-                                output_table=parsed_expression.output_table,
+                                output_table=parsed_expression.target,
                                 source_table=".".join(
                                     [
                                         identifier.name
@@ -88,9 +88,9 @@ class SQLLineageParser:
                 source_table = ".".join(
                     [identifier.name for identifier in source.this.parts]
                 )
-                parsed_expression.source_tables.add(
+                parsed_expression.tables.add(
                     SourceTable(
-                        output_table=parsed_expression.output_table,
+                        output_table=parsed_expression.target,
                         source_table=source_table,
                         alias=join.alias_or_name,
                     ),
@@ -103,9 +103,9 @@ class SQLLineageParser:
             source_table = ".".join(
                 [identifier.name for identifier in source.this.parts]
             )
-            parsed_expression.source_tables.add(
+            parsed_expression.tables.add(
                 SourceTable(
-                    output_table=parsed_expression.output_table,
+                    output_table=parsed_expression.target,
                     source_table=source_table,
                     alias=source.alias_or_name,
                 ),

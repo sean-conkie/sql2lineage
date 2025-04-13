@@ -30,29 +30,27 @@ class SourceTable(BaseModel):
 class ColumnLineage(BaseModel):
     """Column lineage information."""
 
-    output_table: Optional[str] = Field(
-        None, description="The output table of the column."
-    )
+    target: Optional[str] = Field(None, description="The output table of the column.")
     column: Optional[str] = Field(None, description="The column name.")
-    source_column: Optional[str] = Field(None, description="The source column name.")
+    source: Optional[str] = Field(None, description="The source column name.")
     action: Optional[str] = Field(
         None, description="The action performed on the column."
     )
 
     def __hash__(self):
-        return hash((self.output_table, self.column, self.source_column, self.action))
+        return hash((self.target, self.column, self.source, self.action))
 
 
 class ParsedExpression(BaseModel):
     """Parsed expression information."""
 
-    output_table: str = Field(..., description="The output table of the expression.")
+    target: str = Field(..., description="The output table of the expression.")
 
-    column_lineage: set[ColumnLineage] = Field(
+    columns: set[ColumnLineage] = Field(
         default_factory=set, description="The column lineage information."
     )
 
-    source_tables: Set[SourceTable] = Field(
+    tables: Set[SourceTable] = Field(
         default_factory=set, description="The source tables of the expression."
     )
 
@@ -61,7 +59,7 @@ class ParsedExpression(BaseModel):
     )
 
     def __hash__(self):
-        return hash((self.output_table, self.column_lineage, self.source_tables))
+        return hash((self.target, self.columns, self.tables))
 
     @model_serializer
     def serialise_to_dict(self):
@@ -84,15 +82,15 @@ class ParsedExpression(BaseModel):
 
         """
         return {
-            "output_table": self.output_table,
+            "output_table": self.target,
             "column_lineage": [
                 {
-                    "output_table": col.output_table,
+                    "output_table": col.target,
                     "column": col.column,
-                    "source_column": col.source_column,
+                    "source_column": col.source,
                     "action": col.action,
                 }
-                for col in self.column_lineage
+                for col in self.columns
             ],
             "source_tables": [
                 {
@@ -100,7 +98,7 @@ class ParsedExpression(BaseModel):
                     "source_table": src.source_table,
                     "alias": src.alias,
                 }
-                for src in self.source_tables
+                for src in self.tables
             ],
             "subqueries": {
                 key: value.serialise_to_dict() for key, value in self.subqueries.items()
@@ -130,7 +128,7 @@ class ParsedExpression(BaseModel):
         if len(column.parts) == 1 and source_table:
             source_column = f"{source_table}.{column.parts[0].name}"
         elif column.table:
-            for _source_table in self.source_tables:
+            for _source_table in self.tables:
                 if column.table == _source_table.alias:
                     source_column = f"{_source_table.source_table}.{column.name}"
                     break
@@ -140,9 +138,9 @@ class ParsedExpression(BaseModel):
                 subquery = self.subqueries.get(column.table)
                 if subquery:
                     # does the column exist in the subquery?
-                    for col in subquery.column_lineage:
+                    for col in subquery.columns:
                         if col.column == column.name:
-                            source_column = col.source_column
+                            source_column = col.source
                             break
 
         if source_column is None:
@@ -190,11 +188,11 @@ class ParsedExpression(BaseModel):
 
                 source_column = self._get_source_column(select, source_table)
 
-                self.column_lineage.add(
+                self.columns.add(
                     ColumnLineage(
-                        output_table=self.output_table,
+                        target=self.target,
                         column=select.alias_or_name,
-                        source_column=source_column,
+                        source=source_column,
                         action="COPY",
                     )
                 )
@@ -210,25 +208,25 @@ class ParsedExpression(BaseModel):
                     sql = pattern.sub("", select.sql())
                     action = "TRANSFORM" if sql != column.sql() else "COPY"
 
-                    self.column_lineage.add(
+                    self.columns.add(
                         ColumnLineage(
-                            output_table=self.output_table,
+                            target=self.target,
                             column=column.alias_or_name,
-                            source_column=source_column,
+                            source=source_column,
                             action=action,
                         )
                     )
 
             elif expression.find(Star):
-                for target, source in self.source_tables:
-                    if target == self.output_table:
-                        for col in list(self.column_lineage):
-                            if col.output_table == source:
-                                self.column_lineage.add(
+                for target, source in self.tables:
+                    if target == self.target:
+                        for col in list(self.columns):
+                            if col.target == source:
+                                self.columns.add(
                                     ColumnLineage(
-                                        output_table=self.output_table,
-                                        column=col.source_column,
-                                        source_column=f"{source}.{col.source_column}",
+                                        target=self.target,
+                                        column=col.source,
+                                        source=f"{source}.{col.source}",
                                         action="COPY",
                                     )
                                 )
@@ -263,8 +261,8 @@ class ParsedResult(BaseModel):
         """Add a parsed expression to the result."""
         self._expressions.append(expression)
 
-        for lineage in list(expression.column_lineage or []):
+        for lineage in list(expression.columns or []):
             self._column_lineage.add(lineage)
 
-        for source_table in list(expression.source_tables or []):
+        for source_table in list(expression.tables or []):
             self._source_tables.add(source_table)
