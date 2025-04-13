@@ -32,16 +32,15 @@ class SQLLineageParser:
         )
 
         for cte in expression.find_all(CTE):
-
             # CTE creates an alias for the table
-            cte_output_table = cte.alias_or_name
+            cte_target = cte.alias_or_name
 
             # find the source table for the CTE
             for source in cte.find_all(From):
                 parsed_expression.tables.add(
                     SourceTable(
-                        output_table=cte_output_table,
-                        source_table=".".join(
+                        target=cte_target,
+                        source=".".join(
                             [identifier.name for identifier in source.this.parts]
                         ),
                         alias=source.alias_or_name,
@@ -55,7 +54,7 @@ class SQLLineageParser:
                     [identifier.name for identifier in source_table.this.parts]
                 )
 
-            parsed_expression.update_column_lineage(cte, source_table)
+            parsed_expression.update_column_lineage(cte, source_table, cte_target)
 
         # find joins for the main query
         for join in expression.find_all(Join):
@@ -70,8 +69,8 @@ class SQLLineageParser:
                     for source in subquery.find_all(From):
                         parsed_expression.tables.add(
                             SourceTable(
-                                output_table=parsed_expression.target,
-                                source_table=".".join(
+                                target=parsed_expression.target,
+                                source=".".join(
                                     [
                                         identifier.name
                                         for identifier in source.this.parts
@@ -90,8 +89,8 @@ class SQLLineageParser:
                 )
                 parsed_expression.tables.add(
                     SourceTable(
-                        output_table=parsed_expression.target,
-                        source_table=source_table,
+                        target=parsed_expression.target,
+                        source=source_table,
                         alias=join.alias_or_name,
                     ),
                 )
@@ -105,8 +104,8 @@ class SQLLineageParser:
             )
             parsed_expression.tables.add(
                 SourceTable(
-                    output_table=parsed_expression.target,
-                    source_table=source_table,
+                    target=parsed_expression.target,
+                    source=source_table,
                     alias=source.alias_or_name,
                 ),
             )
