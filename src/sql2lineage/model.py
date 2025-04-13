@@ -12,6 +12,7 @@ from pydantic import (
     computed_field,
     model_serializer,
 )
+from pydantic.config import ConfigDict
 from sqlglot import Expression
 from sqlglot.expressions import Alias, Column, Star
 
@@ -355,3 +356,13 @@ class ParsedResult(BaseModel):
                 ),
             ),
         }
+
+
+class LineageResult(BaseModel):
+    """Lineage result."""
+
+    model_config = ConfigDict(extra="allow")
+
+    source: str = Field(..., description="The source of the lineage.")
+    target: str = Field(..., description="The target of the lineage.")
+    type: Optional[str] = Field(None, description="The type of the (e.g., 'COLUMN').")
