@@ -6,8 +6,17 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "networkx>=3.4.2",
+    "pydantic>=2.11.3",
     "sqlglot>=26.13.0",
 ]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
 
 [tool.uv]
 dev-dependencies = [
@@ -47,6 +56,13 @@ reportMissingTypeStubs = false
 select = [ "D", "E", "F", "I", "N", "W",]
 ignore = [ "D107", "D203", "D213", "D400", "D408", "D407", "D409", "D105",]
 
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["sql2lineage*"]
+
 [tool.setuptools.dynamic.version]
-attr = "src.sql2lineage.__version__"
+attr = "sql2lineage.__version__"
 
