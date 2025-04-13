@@ -21,7 +21,6 @@ test:
 
 testcov:
 	uv run coverage run --branch -m pytest tests -vv -p no:warnings \
-      --html="tests/pytest_html/test_report.html" --self-contained-html \
-			-m "not slow"
+      --html="tests/pytest_html/test_report.html" --self-contained-html
 	uv run coverage html
 	uv run coverage report --fail-under=90
