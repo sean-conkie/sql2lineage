@@ -86,7 +86,7 @@ class LineageGraph:
                     _types.append(f"{attr}: {d[attr]}")
 
             if _types:
-                types_string = f" [{", ".join(_types)}]"
+                types_string = f" [{', '.join(_types)}]"
 
             _str.append(f"{u} --> {v}{types_string}")
 
