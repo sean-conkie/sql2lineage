@@ -246,8 +246,8 @@ class ParsedExpression(BaseModel):
                                 self.columns.add(
                                     ColumnLineage(
                                         target=target,
-                                        column=col.source,
-                                        source=f"{table.source}.{col.source}",
+                                        column=col.column,
+                                        source=f"{table.source}.{col.column}",
                                         action="COPY",
                                     )
                                 )

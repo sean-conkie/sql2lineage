@@ -20,20 +20,20 @@ class TestParser:
                     "columns": [
                         {
                             "target": "big_orders",
-                            "column": "orders_with_tax.customer_id",
-                            "source": "filtered_orders.orders_with_tax.customer_id",
+                            "column": "customer_id",
+                            "source": "filtered_orders.customer_id",
                             "action": "COPY",
                         },
                         {
                             "target": "big_orders",
-                            "column": "orders_with_tax.order_id",
-                            "source": "filtered_orders.orders_with_tax.order_id",
+                            "column": "order_id",
+                            "source": "filtered_orders.order_id",
                             "action": "COPY",
                         },
                         {
                             "target": "big_orders",
-                            "column": "orders_with_tax.total_with_tax",
-                            "source": "filtered_orders.orders_with_tax.total_with_tax",
+                            "column": "total_with_tax",
+                            "source": "filtered_orders.total_with_tax",
                             "action": "COPY",
                         },
                         {
