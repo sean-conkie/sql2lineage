@@ -19,12 +19,12 @@ from sqlglot.expressions import Alias, Column, Star
 class SourceTable(BaseModel):
     """Source table information."""
 
-    output_table: str = Field(..., description="The output table of the source.")
-    source_table: str = Field(..., description="The source table of the expression.")
+    target: str = Field(..., description="The output table of the source.")
+    source: str = Field(..., description="The source table of the expression.")
     alias: Optional[str] = Field(None, description="The alias of the source table.")
 
     def __hash__(self):
-        return hash((self.output_table, self.source_table, self.alias))
+        return hash((self.target, self.source, self.alias))
 
 
 class ColumnLineage(BaseModel):
@@ -94,8 +94,8 @@ class ParsedExpression(BaseModel):
             ],
             "source_tables": [
                 {
-                    "output_table": src.output_table,
-                    "source_table": src.source_table,
+                    "output_table": src.target,
+                    "source_table": src.source,
                     "alias": src.alias,
                 }
                 for src in self.tables
@@ -130,7 +130,7 @@ class ParsedExpression(BaseModel):
         elif column.table:
             for _source_table in self.tables:
                 if column.table == _source_table.alias:
-                    source_column = f"{_source_table.source_table}.{column.name}"
+                    source_column = f"{_source_table.source}.{column.name}"
                     break
 
             # check subqueries
@@ -151,7 +151,8 @@ class ParsedExpression(BaseModel):
     def update_column_lineage(
         self,
         expression: Expression,
-        source_table: Optional[str],
+        source: Optional[str],
+        target: Optional[str] = None,
     ):
         """Update the column lineage information based on the provided SQL expression.
 
@@ -162,7 +163,9 @@ class ParsedExpression(BaseModel):
         Args:
             expression (Expression): The SQL expression to analyze. It is expected to have
                 attributes like `selects` and may contain instances of `Column`, `Alias`, or `Star`.
-            source_table (Optional[str]): The name of the source table associated with the expression,
+            source (Optional[str]): The name of the source table associated with the expression,
+                if applicable.
+            target (Optional[str]): The name of the target table associated with the expression,
                 if applicable.
 
         Behavior:
@@ -182,15 +185,18 @@ class ParsedExpression(BaseModel):
         if not hasattr(expression, "selects"):
             return
 
+        if target is None:
+            target = self.target
+
         for select in expression.selects:  # type: ignore
 
             if isinstance(select, Column):
 
-                source_column = self._get_source_column(select, source_table)
+                source_column = self._get_source_column(select, source)
 
                 self.columns.add(
                     ColumnLineage(
-                        target=self.target,
+                        target=target,
                         column=select.alias_or_name,
                         source=source_column,
                         action="COPY",
@@ -200,7 +206,7 @@ class ParsedExpression(BaseModel):
             # find column aliases - transformations
             elif isinstance(select, Alias):
                 for column in select.find_all(Column):
-                    source_column = self._get_source_column(column, source_table)
+                    source_column = self._get_source_column(column, source)
 
                     pattern = re.compile(
                         f"(?: as) {column.alias_or_name}", re.IGNORECASE
@@ -210,7 +216,7 @@ class ParsedExpression(BaseModel):
 
                     self.columns.add(
                         ColumnLineage(
-                            target=self.target,
+                            target=target,
                             column=column.alias_or_name,
                             source=source_column,
                             action=action,
@@ -218,15 +224,15 @@ class ParsedExpression(BaseModel):
                     )
 
             elif expression.find(Star):
-                for target, source in self.tables:
-                    if target == self.target:
+                for table in self.tables:
+                    if table.target == target:
                         for col in list(self.columns):
-                            if col.target == source:
+                            if col.target == table.source:
                                 self.columns.add(
                                     ColumnLineage(
-                                        target=self.target,
+                                        target=target,
                                         column=col.source,
-                                        source=f"{source}.{col.source}",
+                                        source=f"{table.source}.{col.source}",
                                         action="COPY",
                                     )
                                 )
