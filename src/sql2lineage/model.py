@@ -155,7 +155,32 @@ class ParsedExpression(BaseModel):
         expression: Expression,
         source_table: Optional[str],
     ):
+        """Update the column lineage information based on the provided SQL expression.
 
+        This method analyzes the given SQL expression to determine the lineage of columns,
+        including their source tables, transformations, and actions (e.g., COPY or TRANSFORM).
+        It updates the `column_lineage` attribute with the derived lineage information.
+
+        Args:
+            expression (Expression): The SQL expression to analyze. It is expected to have
+                attributes like `selects` and may contain instances of `Column`, `Alias`, or `Star`.
+            source_table (Optional[str]): The name of the source table associated with the expression,
+                if applicable.
+
+        Behavior:
+            - If the expression contains `Column` instances, it identifies the source column
+              and adds a lineage entry with the action "COPY".
+            - If the expression contains `Alias` instances, it determines whether the alias
+              represents a transformation or a direct copy and updates the lineage accordingly.
+            - If the expression contains a `Star` (wildcard), it maps all columns from the
+              source tables to the output table with the action "COPY".
+
+        Note:
+            - The method assumes the presence of helper methods like `_get_source_column` and
+              attributes like `self.column_lineage` and `self.output_table`.
+            - Regular expressions are used to identify transformations in alias SQL strings.
+
+        """
         if not hasattr(expression, "selects"):
             return
 
