@@ -81,11 +81,8 @@ class SQLLineageParser:
                         )
 
             else:
-                source = join.find(From)
-                if not source:
-                    continue
                 source_table = ".".join(
-                    [identifier.name for identifier in source.this.parts]
+                    [identifier.name for identifier in join.this.parts]
                 )
                 parsed_expression.tables.add(
                     SourceTable(
