@@ -156,6 +156,43 @@ class TestParser:
                 },
                 id="join_example",
             ),
+            pytest.param("tests/sql/empty.sql", [], id="empty"),
+            pytest.param(
+                "tests/sql/join_no_subquery.sql",
+                {
+                    "target": "join_example",
+                    "columns": [
+                        {
+                            "target": "join_example",
+                            "column": "age",
+                            "source": "raw.user_details.age",
+                            "action": "COPY",
+                        },
+                        {
+                            "target": "join_example",
+                            "column": "id",
+                            "source": "raw.users.id",
+                            "action": "COPY",
+                        },
+                        {
+                            "target": "join_example",
+                            "column": "name",
+                            "source": "raw.users.name",
+                            "action": "COPY",
+                        },
+                    ],
+                    "tables": [
+                        {
+                            "target": "join_example",
+                            "source": "raw.user_details",
+                            "alias": "b",
+                        },
+                        {"target": "join_example", "source": "raw.users", "alias": "a"},
+                    ],
+                    "subqueries": {},
+                },
+                id="join_no_subquery",
+            ),
         ],
     )
     def test_parse_sql(self, file_path, expected):
@@ -171,5 +208,8 @@ class TestParser:
         with Path(file_path).open("r", encoding="utf-8") as src:
             parsed_result = parser.extract_lineage(src.read())
 
-        result = parsed_result.expressions[0].model_dump()
-        assert result == expected
+        if parsed_result.expressions:
+            result = parsed_result.expressions[0].model_dump()
+            assert result == expected
+        else:
+            assert parsed_result.expressions == expected
