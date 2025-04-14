@@ -366,3 +366,6 @@ class LineageResult(BaseModel):
     source: str = Field(..., description="The source of the lineage.")
     target: str = Field(..., description="The target of the lineage.")
     type: Optional[str] = Field(None, description="The type of the (e.g., 'COLUMN').")
+    action: Optional[str] = Field(
+        None, description="The action performed on the column (e.g., 'COPY')."
+    )
