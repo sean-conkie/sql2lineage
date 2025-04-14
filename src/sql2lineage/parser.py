@@ -4,11 +4,15 @@ This module provides a class to parse SQL queries and extract lineage informatio
 """
 
 # pylint: disable=no-member
+import asyncio
 import logging
-from typing import Callable, List, Optional, Sequence
+from os import PathLike
+from pathlib import Path
+from typing import Callable, List, Optional, Sequence, TypeAlias
 
 import sqlglot
 import sqlglot.errors
+from anyio import open_file
 from sqlglot.dialects.dialect import DialectType
 from sqlglot.expressions import (
     CTE,
@@ -24,6 +28,8 @@ from sqlglot.expressions import (
 )
 
 from sql2lineage.model import ParsedExpression, ParsedResult, SourceTable
+
+StrPath: TypeAlias = str | PathLike[str]
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.ERROR)
@@ -321,3 +327,89 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
                 logger.error("Error parsing: %s", error)
                 continue
         return result
+
+    async def aextract_lineages_from_file(
+        self,
+        path: StrPath,
+        glob: Optional[str] = None,
+        dialect: Optional[DialectType] = None,
+        pre_transform: Optional[Callable[[str], str]] = None,
+    ):
+        """Asynchronously extract lineages from SQL files in a given directory.
+
+        This method searches for SQL files in the specified directory (and its subdirectories)
+        matching the provided glob pattern, reads their contents asynchronously, and extracts
+        lineage information from the SQL content.
+
+        Args:
+            path (StrPath): The path to the directory or file to process.
+            glob (Optional[str], optional): A glob pattern to match specific files. Defaults to "*.sql".
+            dialect (Optional[DialectType], optional): The SQL dialect to use for parsing. Defaults to None.
+            pre_transform (Optional[Callable[[str], str]], optional): A callable to pre-process the SQL content
+                before extracting lineages. Defaults to None.
+
+        Returns:
+            List[Lineage]: A list of extracted lineage objects.
+
+        Raises:
+            Any exceptions raised during file reading or lineage extraction.
+
+        Notes:
+            - This function uses asynchronous file I/O for better performance when processing multiple files.
+            - The `extract_lineages` method is called internally to perform the actual lineage extraction.
+
+        """
+
+        async def read(path):
+            async with await open_file(path, "r", encoding="utf-8") as f:
+                return await f.read()
+
+        # find all .sql files in the directory
+        if glob is None:
+            glob = "*.sql"
+
+        tasks = [read(pth) for pth in Path(path).rglob(glob)]
+        contents = await asyncio.gather(*tasks)
+
+        return self.extract_lineages(
+            [content for content in contents if content],
+            dialect=dialect,
+            pre_transform=pre_transform,
+        )
+
+    def extract_lineages_from_file(
+        self,
+        path: StrPath,
+        glob: Optional[str] = None,
+        dialect: Optional[DialectType] = None,
+        pre_transform: Optional[Callable[[str], str]] = None,
+    ):
+        """Extract lineage information from SQL files in a specified directory.
+
+        This method searches for SQL files in the given directory (and its subdirectories) matching
+        the specified glob pattern, reads their contents, and extracts lineage information.
+
+        Args:
+            path (StrPath): The path to the directory containing SQL files.
+            glob (Optional[str]): A glob pattern to match specific SQL files. Defaults to "*.sql".
+            dialect (Optional[DialectType]): The SQL dialect to use for parsing. Defaults to None.
+            pre_transform (Optional[Callable[[str], str]]): A callable to preprocess the SQL content
+                before extracting lineage. Defaults to None.
+
+        Returns:
+            List[Lineage]: A list of lineage objects extracted from the SQL files.
+
+        """
+        # find all .sql files in the directory
+        if glob is None:
+            glob = "*.sql"
+
+        contents = [
+            pth.open("r", encoding="utf-8").read() for pth in Path(path).rglob(glob)
+        ]
+
+        return self.extract_lineages(
+            [content for content in contents if content],
+            dialect=dialect,
+            pre_transform=pre_transform,
+        )

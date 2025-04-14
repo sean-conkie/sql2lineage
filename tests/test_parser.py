@@ -363,3 +363,16 @@ class TestParser:
 
         parsed_result = parser.extract_lineage("def not_sql(): pass")
         assert parsed_result.expressions == []
+
+    def test_extract_lineages_from_file(self):
+        """Test the SQL parser with various SQL files."""
+        parser = SQLLineageParser(dialect="bigquery")
+        result = parser.extract_lineages_from_file("tests/sql", glob="*.sql")
+        assert len(result.expressions) == 6
+
+    @pytest.mark.asyncio
+    async def test_aextract_lineages_from_file(self):
+        """Test the SQL parser with various SQL files."""
+        parser = SQLLineageParser(dialect="bigquery")
+        result = await parser.aextract_lineages_from_file("tests/sql", glob="*.sql")
+        assert len(result.expressions) == 6
