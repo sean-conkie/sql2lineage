@@ -1,0 +1,1 @@
+truncate table truncaate_table;

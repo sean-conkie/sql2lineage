@@ -197,9 +197,142 @@ class TestParser:
                 },
                 id="join_no_subquery",
             ),
+            pytest.param(
+                "tests/sql/unnest.sql",
+                {
+                    "target": "unnest_example",
+                    "columns": [
+                        {
+                            "target": "unnest_example",
+                            "column": "address1",
+                            "source": "ad.address1",
+                            "action": "COPY",
+                        },
+                        {
+                            "target": "unnest_example",
+                            "column": "address2",
+                            "source": "ad.address2",
+                            "action": "COPY",
+                        },
+                        {
+                            "target": "unnest_example",
+                            "column": "city",
+                            "source": "ad.city",
+                            "action": "COPY",
+                        },
+                        {
+                            "target": "unnest_example",
+                            "column": "orderid",
+                            "source": "raw_orders.orderid",
+                            "action": "TRANSFORM",
+                        },
+                        {
+                            "target": "unnest_example",
+                            "column": "prouct",
+                            "source": "li.prouct",
+                            "action": "COPY",
+                        },
+                        {
+                            "target": "unnest_example",
+                            "column": "state",
+                            "source": "ad.state",
+                            "action": "COPY",
+                        },
+                        {
+                            "target": "unnest_example",
+                            "column": "zip",
+                            "source": "ad.zip",
+                            "action": "COPY",
+                        },
+                    ],
+                    "tables": [
+                        {
+                            "target": "unnest_example",
+                            "source": "raw_orders",
+                            "alias": "",
+                        },
+                        {
+                            "target": "unnest_example",
+                            "source": "raw_orders",
+                            "alias": "src",
+                        },
+                    ],
+                    "subqueries": {},
+                    "expression": "CREATE OR REPLACE TABLE unnest_example AS\nSELECT\n  orderid AS order_id,\n  ad.address1,\n  ad.address2,\n  ad.city,\n  ad.state,\n  ad.zip,\n  li.prouct\nFROM raw_orders AS src, UNNEST(src.address) AS _t0(ad), UNNEST(lines_items) AS _t1(li)",
+                },
+                id="unnest",
+            ),
+            pytest.param(
+                "tests/sql/from_subquery.sql",
+                {
+                    "target": "from_subquery",
+                    "columns": [
+                        {
+                            "target": "from_subquery",
+                            "column": "age",
+                            "source": "raw.user_details.age",
+                            "action": "COPY",
+                        },
+                        {
+                            "target": "from_subquery",
+                            "column": "id",
+                            "source": "raw.user_details.id",
+                            "action": "COPY",
+                        },
+                    ],
+                    "tables": [
+                        {
+                            "target": "from_subquery",
+                            "source": "raw.user_details",
+                            "alias": "user_details",
+                        }
+                    ],
+                    "subqueries": {
+                        "a": {
+                            "target": "",
+                            "columns": [
+                                {
+                                    "target": "",
+                                    "column": "age",
+                                    "source": "raw.user_details.age",
+                                    "action": "COPY",
+                                },
+                                {
+                                    "target": "",
+                                    "column": "id",
+                                    "source": "raw.user_details.id",
+                                    "action": "COPY",
+                                },
+                            ],
+                            "tables": [
+                                {
+                                    "target": "",
+                                    "source": "raw.user_details",
+                                    "alias": "user_details",
+                                }
+                            ],
+                            "subqueries": {},
+                            "expression": "(\n  SELECT\n    id,\n    age\n  FROM raw.user_details\n) AS a",
+                        }
+                    },
+                    "expression": "CREATE TABLE from_subquery AS\nSELECT\n  a.id AS id,\n  a.age AS age\nFROM (\n  SELECT\n    id,\n    age\n  FROM raw.user_details\n) AS a",
+                },
+                id="from_subquery",
+            ),
+            pytest.param(
+                "tests/sql/truncate_table.sql",
+                {
+                    "target": "truncaate_table",
+                    "columns": [],
+                    "tables": [],
+                    "subqueries": {},
+                    "expression": "TRUNCATE TABLE   truncaate_table",
+                },
+                id="truncate",
+            ),
         ],
     )
-    def test_parse_sql(self, file_path, expected):
+    def test_extract_lineage(self, file_path, expected):
         """Test the SQL parser with various SQL files.
 
         Args:
@@ -217,3 +350,16 @@ class TestParser:
             assert result == expected
         else:
             assert parsed_result.expressions == expected
+
+    def test_extract_lineage_error(self):
+        """Test the SQL parser with an invalid SQL file.
+
+        Args:
+            file_path (str): The path to the SQL file to be parsed.
+            expected (dict): The expected output of the parser.
+
+        """
+        parser = SQLLineageParser(dialect="bigquery")
+
+        parsed_result = parser.extract_lineage("def not_sql(): pass")
+        assert parsed_result.expressions == []
