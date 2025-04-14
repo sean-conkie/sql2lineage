@@ -1,11 +1,32 @@
 """Test the graph module."""
 
+import pytest
+
 from sql2lineage.graph import LineageGraph
-from sql2lineage.model import ColumnLineage, ParsedExpression, SourceTable
+from sql2lineage.model import (
+    ColumnLineage,
+    LineageResult,
+    ParsedExpression,
+    SourceTable,
+)
+from sql2lineage.parser import SQLLineageParser
 
 
 class TestLinageGraph:
     """TestLinageGraph."""
+
+    @pytest.fixture(scope="class")
+    def graph(self):
+        """Fixture for graph."""
+        with open("tests/sql/example.sql", encoding="utf-8") as f:
+            sql = f.read()
+
+        parser = SQLLineageParser(dialect="bigquery")
+        r = parser.extract_lineage(sql)
+
+        graph = LineageGraph()
+        graph.from_parsed(r.expressions)
+        yield graph
 
     def test_add_table_edges(self):
         """Test add table edges."""
@@ -136,3 +157,184 @@ class TestLinageGraph:
         )
 
         assert len(graph.graph.edges) == 4
+
+    @pytest.mark.parametrize(
+        "node, node_type, expected",
+        [
+            pytest.param(
+                "orders_with_tax.order_id",
+                "COLUMN",
+                [
+                    [
+                        LineageResult(
+                            source="raw.orders.order_id",
+                            target="orders_with_tax.order_id",
+                            type="COLUMN",
+                            action="COPY",
+                        )
+                    ]
+                ],
+                id="COLUMN",
+            ),
+            pytest.param(
+                "big_orders",
+                "TABLE",
+                [
+                    [
+                        LineageResult(
+                            source="raw.orders",
+                            target="orders_with_tax",
+                            type="TABLE",
+                            action=None,
+                        ),
+                        LineageResult(
+                            source="orders_with_tax",
+                            target="filtered_orders",
+                            type="TABLE",
+                            action=None,
+                        ),
+                        LineageResult(
+                            source="filtered_orders",
+                            target="big_orders",
+                            type="TABLE",
+                            action=None,
+                        ),
+                    ]
+                ],
+                id="TABLE",
+            ),
+        ],
+    )
+    def test_get_node_lineage(self, graph, node, node_type, expected):
+        """Test get node lineage."""
+        assert graph.get_node_lineage(node, node_type) == expected
+
+    @pytest.mark.parametrize(
+        "node, node_type, expected",
+        [
+            pytest.param(
+                "raw.orders.order_id",
+                "COLUMN",
+                [
+                    [
+                        LineageResult(
+                            source="raw.orders.order_id",
+                            target="orders_with_tax.order_id",
+                            type="COLUMN",
+                            action="COPY",
+                        ),
+                        LineageResult(
+                            source="orders_with_tax.order_id",
+                            target="filtered_orders.order_id",
+                            type="COLUMN",
+                            action="COPY",
+                        ),
+                        LineageResult(
+                            source="filtered_orders.order_id",
+                            target="big_orders.order_id",
+                            type="COLUMN",
+                            action="COPY",
+                        ),
+                    ]
+                ],
+                id="COLUMN",
+            ),
+            pytest.param(
+                "raw.orders",
+                "TABLE",
+                [
+                    [
+                        LineageResult(
+                            source="raw.orders",
+                            target="orders_with_tax",
+                            type="TABLE",
+                            action=None,
+                        ),
+                        LineageResult(
+                            source="orders_with_tax",
+                            target="filtered_orders",
+                            type="TABLE",
+                            action=None,
+                        ),
+                        LineageResult(
+                            source="filtered_orders",
+                            target="big_orders",
+                            type="TABLE",
+                            action=None,
+                        ),
+                    ]
+                ],
+                id="TABLE",
+            ),
+        ],
+    )
+    def test_get_node_descendants(self, graph, node, node_type, expected):
+        """Test get node descendants."""
+        assert graph.get_node_descendants(node, node_type) == expected
+
+    @pytest.mark.parametrize(
+        "node, node_type, expected",
+        [
+            pytest.param(
+                "filtered_orders.order_id",
+                "COLUMN",
+                [
+                    [
+                        LineageResult(
+                            source="raw.orders.order_id",
+                            target="orders_with_tax.order_id",
+                            type="COLUMN",
+                            action="COPY",
+                        ),
+                        LineageResult(
+                            source="orders_with_tax.order_id",
+                            target="filtered_orders.order_id",
+                            type="COLUMN",
+                            action="COPY",
+                        ),
+                    ],
+                    [
+                        LineageResult(
+                            source="filtered_orders.order_id",
+                            target="big_orders.order_id",
+                            type="COLUMN",
+                            action="COPY",
+                        ),
+                    ],
+                ],
+                id="COLUMN",
+            ),
+            pytest.param(
+                "filtered_orders",
+                "TABLE",
+                [
+                    [
+                        LineageResult(
+                            source="raw.orders",
+                            target="orders_with_tax",
+                            type="TABLE",
+                            action=None,
+                        ),
+                        LineageResult(
+                            source="orders_with_tax",
+                            target="filtered_orders",
+                            type="TABLE",
+                            action=None,
+                        ),
+                    ],
+                    [
+                        LineageResult(
+                            source="filtered_orders",
+                            target="big_orders",
+                            type="TABLE",
+                            action=None,
+                        ),
+                    ],
+                ],
+                id="TABLE",
+            ),
+        ],
+    )
+    def test_get_node_neighbours(self, graph, node, node_type, expected):
+        """Test get node neighbours."""
+        assert graph.get_node_neighbours(node, node_type) == expected
