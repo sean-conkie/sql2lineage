@@ -129,8 +129,30 @@ class LineageGraph:
 
         """
         return all(
-            self.graph.edges[u, node]["type"] != node_type
+            self.graph.edges[u, node].get("type") != node_type
             for u in self.graph.predecessors(node)
+        )
+
+    def is_leaf_node(
+        self, node: str, node_type: Literal["COLUMN", "TABLE"] = "COLUMN"
+    ) -> bool:
+        """Determine if a given node in the graph is a leaf node.
+
+        A leaf node is defined as a node that does not have any outgoing edges
+        of the specified type ("COLUMN" or "TABLE").
+
+        Args:
+            node (str): The identifier of the node to check.
+            node_type (Literal["COLUMN", "TABLE"], optional): The type of edge to consider
+                when determining if the node is a leaf. Defaults to "COLUMN".
+
+        Returns:
+            bool: True if the node is a leaf node of the specified type, False otherwise.
+
+        """
+        return all(
+            self.graph.edges[node, u].get("type") != node_type
+            for u in self.graph.successors(node)
         )
 
     def get_node_lineage(
@@ -163,21 +185,68 @@ class LineageGraph:
 
         for source in root_nodes:
             for path in nx.all_simple_paths(self.graph, source, node):
-                step_info = []
-                for i in range(len(path) - 1):
-                    u, v = path[i], path[i + 1]
-                    edge = self.graph.get_edge_data(u, v)
-
-                    lineage_result = {
-                        "source": u,
-                        "target": v,
-                    }
-
-                    for attr in self._attrs:
-                        if edge.get(attr):
-                            lineage_result[attr] = edge[attr]
-
-                    step_info.append(lineage_result)
+                step_info = self._extract_path_steps(path)
                 chains.append(step_info)
 
         return chains
+
+    def get_node_descendants(
+        self, source_node: str, node_type: Literal["COLUMN", "TABLE"] = "COLUMN"
+    ) -> List[List[str]]:
+        """Retrieve all descendant nodes of a given source node in the graph, grouped by paths.
+
+        This method identifies all descendant nodes of the specified `source_node` in the graph
+        and organizes them into chains of paths. Each path represents a sequence of nodes
+        from the `source_node` to a root node of the specified `node_type`.
+
+        Args:
+            source_node (str): The starting node in the graph from which to find descendants.
+            node_type (Literal["COLUMN", "TABLE"], optional): The type of node to consider as
+                root nodes in the graph. Defaults to "COLUMN".
+
+        Returns:
+            List[List[str]]: A list of chains, where each chain is a list of node names
+            representing a path from the `source_node` to a root node of the specified type.
+
+        """
+        descendents = nx.descendants(self.graph, source_node)
+
+        root_nodes = [
+            node for node in descendents if self.is_leaf_node(node, node_type)
+        ]
+        chains = []
+        for source in root_nodes:
+            for path in nx.all_simple_paths(self.graph, source_node, source):
+                step_info = self._extract_path_steps(path)
+                chains.append(step_info)
+        return chains
+
+    def _extract_path_steps(self, path):
+        """Extract detailed information about each step in a given path within the graph.
+
+        Args:
+            path (list): A list of nodes representing a path in the graph.
+
+        Returns:
+            list: A list of dictionaries, where each dictionary contains information
+                  about the source node, target node, and any additional attributes
+                  associated with the edge connecting them.
+
+        """
+        step_info = []
+        for i in range(len(path) - 1):
+            u, v = path[i], path[i + 1]
+            edge = self.graph.get_edge_data(u, v)
+
+            lineage_result = {
+                "source": u,
+                "target": v,
+            }
+
+            for attr in self._attrs:
+                if edge.get(attr):
+                    lineage_result[attr] = edge[attr]
+
+            step_info.append(lineage_result)
+
+        return step_info
