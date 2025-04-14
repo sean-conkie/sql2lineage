@@ -57,6 +57,7 @@ graph.pretty_print()
 ```
 
 Output
+
 ```text
 filtered_orders --> big_orders [type: TABLE]
 raw.orders --> orders_with_tax [type: TABLE]
