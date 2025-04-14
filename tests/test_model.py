@@ -48,7 +48,7 @@ class TestParsedExpression:
 
     def test_serialize(self):
         """Test column lineage."""
-        parsed_expression = ParsedExpression(target="target_table")
+        parsed_expression = ParsedExpression(target="target_table", expression="")
         parsed_expression.columns.add(
             ColumnLineage(
                 source="source_table",
@@ -84,6 +84,7 @@ class TestParsedExpression:
                 }
             ],
             "subqueries": {},
+            "expression": "",
         }
 
 
@@ -92,7 +93,7 @@ class TestParsedResult:
 
     def test_serialize(self):
         """Test column lineage."""
-        parsed_expression = ParsedExpression(target="target_table")
+        parsed_expression = ParsedExpression(target="target_table", expression="")
         parsed_expression.columns.add(
             ColumnLineage(
                 source="source_table",
@@ -133,6 +134,7 @@ class TestParsedResult:
                         }
                     ],
                     "subqueries": {},
+                    "expression": "",
                 }
             ],
             "tables": [

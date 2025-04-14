@@ -91,6 +91,7 @@ class TestParser:
                         },
                     ],
                     "subqueries": {},
+                    "expression": "WITH orders_with_tax AS (\n  SELECT\n    order_id,\n    customer_id,\n    order_total * 1.2 AS total_with_tax\n  FROM raw.orders\n), filtered_orders AS (\n  SELECT\n    order_id,\n    customer_id,\n    total_with_tax\n  FROM orders_with_tax\n)\nCREATE TABLE big_orders AS\nSELECT\n  *\nFROM filtered_orders",
                 },
                 id="example",
             ),
@@ -128,16 +129,16 @@ class TestParser:
                     ],
                     "subqueries": {
                         "b": {
-                            "target": "expr000",
+                            "target": "",
                             "columns": [
                                 {
-                                    "target": "expr000",
+                                    "target": "",
                                     "column": "age",
                                     "source": "raw.user_details.age",
                                     "action": "COPY",
                                 },
                                 {
-                                    "target": "expr000",
+                                    "target": "",
                                     "column": "id",
                                     "source": "raw.user_details.id",
                                     "action": "COPY",
@@ -145,14 +146,16 @@ class TestParser:
                             ],
                             "tables": [
                                 {
-                                    "target": "expr000",
+                                    "target": "",
                                     "source": "raw.user_details",
                                     "alias": "user_details",
                                 }
                             ],
                             "subqueries": {},
+                            "expression": "(\n  SELECT\n    id,\n    age\n  FROM raw.user_details\n) AS b",
                         }
                     },
+                    "expression": "CREATE TABLE join_example AS\nSELECT\n  a.id AS id,\n  a.name,\n  b.age AS age\nFROM raw.users AS a\nJOIN (\n  SELECT\n    id,\n    age\n  FROM raw.user_details\n) AS b\n  ON a.id = b.id\nWHERE\n  NOT a.name IS NULL AND b.age > 18",
                 },
                 id="join_example",
             ),
@@ -190,6 +193,7 @@ class TestParser:
                         {"target": "join_example", "source": "raw.users", "alias": "a"},
                     ],
                     "subqueries": {},
+                    "expression": "CREATE TABLE join_example AS\nSELECT\n  a.id AS id,\n  a.name,\n  b.age AS age\nFROM raw.users AS a\nJOIN raw.user_details AS b\n  ON a.id = b.id\nWHERE\n  NOT a.name IS NULL AND b.age > 18",
                 },
                 id="join_no_subquery",
             ),

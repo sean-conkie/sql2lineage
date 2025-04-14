@@ -151,6 +151,7 @@ class TestLinageGraph:
                             }
                         ],
                         "subqueries": {},
+                        "expression": "",
                     }
                 )
             ]
