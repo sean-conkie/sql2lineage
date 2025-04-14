@@ -112,8 +112,8 @@ class LineageGraph:
         `model_dump()` representation.
 
         """
+        print("Neighbourhood:")
         for path in paths:
-            print("Neighbourhood:")
             for node in path:
                 print("  ↳", node.model_dump())
 
@@ -246,6 +246,34 @@ class LineageGraph:
             for path in nx.all_simple_paths(self.graph, source_node, source):
                 step_info = self._extract_path_steps(path, max_steps)
                 chains.append(step_info)
+        return chains
+
+    def get_node_neighbours(
+        self,
+        node: str,
+        node_type: Literal["COLUMN", "TABLE"] = "COLUMN",
+        max_steps: Optional[int] = None,
+    ) -> List[List[LineageResult]]:
+        """Retrieve the neighboring nodes of a given node in the lineage graph.
+
+        This method fetches both the lineage (ancestors) and descendants of the specified node
+        up to a certain number of steps, if specified.
+
+        Args:
+            node (str): The name of the node for which neighbors are to be retrieved.
+            node_type (Literal["COLUMN", "TABLE"], optional): The type of the node, either "COLUMN" or "TABLE".
+                Defaults to "COLUMN".
+            max_steps (Optional[int], optional): The maximum number of steps to traverse in the graph.
+                If None, the traversal is unbounded. Defaults to None.
+
+        Returns:
+            List[List[LineageResult]]: A list of chains, where each chain is a list of LineageResult objects
+            representing the lineage or descendant paths of the given node.
+
+        """
+        chains = []
+        chains.extend(self.get_node_lineage(node, node_type, max_steps))
+        chains.extend(self.get_node_descendants(node, node_type, max_steps))
         return chains
 
     def _extract_path_steps(
