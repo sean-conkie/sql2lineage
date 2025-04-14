@@ -59,6 +59,11 @@ class ParsedExpression(BaseModel):
         default_factory=dict, description="The subqueries of the expression."
     )
 
+    expression: str = Field(
+        ...,
+        description="The SQL expression.",
+    )
+
     def __hash__(self):
         return hash((self.target, self.columns, self.tables))
 
@@ -119,6 +124,7 @@ class ParsedExpression(BaseModel):
             "subqueries": {
                 key: value.serialise_to_dict() for key, value in self.subqueries.items()
             },
+            "expression": self.expression,
         }
 
     def _get_source_column(
