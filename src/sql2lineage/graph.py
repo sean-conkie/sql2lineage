@@ -3,11 +3,16 @@
 This module defines a LineageGraph class that uses NetworkX to represent.
 """
 
-from typing import List, Literal, Set
+from typing import List, Literal, Optional, Set
 
 import networkx as nx
 
-from sql2lineage.model import ColumnLineage, ParsedExpression, SourceTable
+from sql2lineage.model import (
+    ColumnLineage,
+    LineageResult,
+    ParsedExpression,
+    SourceTable,
+)
 
 
 class LineageGraph:
@@ -96,6 +101,22 @@ class LineageGraph:
         """Print the graph in a human-readable format."""
         print(self.pretty_string())
 
+    def print_neighbourhood(self, paths: List[List[LineageResult]]):
+        """Print the neighborhood of nodes for each path in the provided list of paths.
+
+        Args:
+            paths (List[List[LineageResult]]): A list of paths, where each path is a list of
+                LineageResult objects representing nodes in the graph.
+
+        Each path is printed with its nodes in sequence, and each node is displayed using its
+        `model_dump()` representation.
+
+        """
+        for path in paths:
+            print("Neighbourhood:")
+            for node in path:
+                print("  ↳", node.model_dump())
+
     def from_parsed(self, parsed_expressions: List[ParsedExpression]):
         """Create a lineage graph from parsed expressions.
 
@@ -156,8 +177,11 @@ class LineageGraph:
         )
 
     def get_node_lineage(
-        self, node: str, node_type: Literal["COLUMN", "TABLE"] = "COLUMN"
-    ):
+        self,
+        node: str,
+        node_type: Literal["COLUMN", "TABLE"] = "COLUMN",
+        max_steps: Optional[int] = None,
+    ) -> List[List[LineageResult]]:
         """Retrieve the lineage of a specific node in the graph.
 
         This method identifies all possible paths from the root nodes (true sources)
@@ -168,14 +192,12 @@ class LineageGraph:
             node (str): The target node for which lineage is to be retrieved.
             node_type (Literal["COLUMN", "TABLE"], optional): The type of the node.
                 Defaults to "COLUMN".
+            max_steps (int, optional): The maximum number of steps to extract from each path.
+                Defaults to None.
 
         Returns:
-            List[List[Dict[str, Any]]]: A list of chains, where each chain is a list
-            of dictionaries representing the steps in the lineage. Each dictionary
-            contains:
-                - "from" (str): The source node of the edge.
-                - "to" (str): The destination node of the edge.
-                - Additional attributes of the edge, if present in the graph.
+            List[List[LineageResult]]: A list of chains, where each chain is a list
+            of dictionaries representing the steps in the lineage.
 
         """
         chains = []
@@ -185,14 +207,17 @@ class LineageGraph:
 
         for source in root_nodes:
             for path in nx.all_simple_paths(self.graph, source, node):
-                step_info = self._extract_path_steps(path)
+                step_info = self._extract_path_steps(path, max_steps)
                 chains.append(step_info)
 
         return chains
 
     def get_node_descendants(
-        self, source_node: str, node_type: Literal["COLUMN", "TABLE"] = "COLUMN"
-    ) -> List[List[str]]:
+        self,
+        source_node: str,
+        node_type: Literal["COLUMN", "TABLE"] = "COLUMN",
+        max_steps: Optional[int] = None,
+    ) -> List[List[LineageResult]]:
         """Retrieve all descendant nodes of a given source node in the graph, grouped by paths.
 
         This method identifies all descendant nodes of the specified `source_node` in the graph
@@ -203,9 +228,11 @@ class LineageGraph:
             source_node (str): The starting node in the graph from which to find descendants.
             node_type (Literal["COLUMN", "TABLE"], optional): The type of node to consider as
                 root nodes in the graph. Defaults to "COLUMN".
+            max_steps (int, optional): The maximum number of steps to extract from each path.
+                Defaults to None.
 
         Returns:
-            List[List[str]]: A list of chains, where each chain is a list of node names
+            List[List[LineageResult]]: A list of chains, where each chain is a list of node names
             representing a path from the `source_node` to a root node of the specified type.
 
         """
@@ -217,15 +244,19 @@ class LineageGraph:
         chains = []
         for source in root_nodes:
             for path in nx.all_simple_paths(self.graph, source_node, source):
-                step_info = self._extract_path_steps(path)
+                step_info = self._extract_path_steps(path, max_steps)
                 chains.append(step_info)
         return chains
 
-    def _extract_path_steps(self, path):
+    def _extract_path_steps(
+        self, path, max_steps: Optional[int] = None
+    ) -> List[LineageResult]:
         """Extract detailed information about each step in a given path within the graph.
 
         Args:
             path (list): A list of nodes representing a path in the graph.
+            max_steps (int, optional): The maximum number of steps to extract from the path.
+                Defaults to None.
 
         Returns:
             list: A list of dictionaries, where each dictionary contains information
@@ -234,7 +265,7 @@ class LineageGraph:
 
         """
         step_info = []
-        for i in range(len(path) - 1):
+        for i in range(max_steps or len(path) - 1):
             u, v = path[i], path[i + 1]
             edge = self.graph.get_edge_data(u, v)
 
@@ -247,6 +278,6 @@ class LineageGraph:
                 if edge.get(attr):
                     lineage_result[attr] = edge[attr]
 
-            step_info.append(lineage_result)
+            step_info.append(LineageResult.model_validate(lineage_result))
 
         return step_info
