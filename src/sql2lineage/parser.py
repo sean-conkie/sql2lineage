@@ -135,20 +135,27 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
             # CTE creates an alias for the table
             cte_target = cte.alias_or_name
 
-            # find the source table for the CTE
-            for source in cte.find_all(From):
+            # find the source tables for the CTE
+            # parse the CTE
+            parsed_cte = self._parse_expression(cte.this, index)
+
+            for source in parsed_cte.tables:
                 parsed_expression.tables.add(
                     SourceTable(
                         target=cte_target,
-                        source=self._join_parts(source.this.parts),
-                        alias=source.alias_or_name,
+                        source=source.source,
+                        alias=source.alias,
                     )
                 )
 
             # create a default source table
-            source_table = cte.find(From)
-            if source_table:
-                source_table = self._join_parts(source_table.this.parts)
+            if source_table := cte.find(From):
+                if hasattr(source_table.this, "parts"):
+                    source_table = self._join_parts(source_table.this.parts)
+                elif source_table_table := source_table.find(Table):
+                    source_table = self._join_parts(source_table_table.parts)
+                else:
+                    source_table = None
 
             parsed_expression.update_column_lineage(cte, source_table, cte_target)
 
