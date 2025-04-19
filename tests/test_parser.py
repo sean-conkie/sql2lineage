@@ -330,6 +330,59 @@ class TestParser:
                 },
                 id="truncate",
             ),
+            pytest.param(
+                "tests/sql/cte_with_subquery.sql",
+                {
+                    "target": "expr000",
+                    "columns": [
+                        {
+                            "target": "cte_with_subquery",
+                            "column": "id",
+                            "source": "test_table.id",
+                            "action": "COPY",
+                        },
+                        {
+                            "target": "cte_with_subquery",
+                            "column": "name",
+                            "source": "test_table.name",
+                            "action": "COPY",
+                        },
+                        {
+                            "target": "expr000",
+                            "column": "id",
+                            "source": "cte_with_subquery.id",
+                            "action": "COPY",
+                        },
+                        {
+                            "target": "expr000",
+                            "column": "name",
+                            "source": "cte_with_subquery.name",
+                            "action": "COPY",
+                        },
+                        {
+                            "target": "expr000",
+                            "column": "total_count",
+                            "source": "cte_with_subquery.total_count",
+                            "action": "COPY",
+                        },
+                    ],
+                    "tables": [
+                        {
+                            "target": "cte_with_subquery",
+                            "source": "test_table",
+                            "alias": "test_table",
+                        },
+                        {
+                            "target": "expr000",
+                            "source": "cte_with_subquery",
+                            "alias": "cte_with_subquery",
+                        },
+                    ],
+                    "subqueries": {},
+                    "expression": "WITH cte_with_subquery AS (\n  SELECT\n    id,\n    name,\n    (\n      SELECT\n        COUNT(*)\n      FROM test_table\n    ) AS total_count\n  FROM test_table\n)\nSELECT\n  id,\n  name,\n  total_count\nFROM cte_with_subquery\nWHERE\n  total_count > 0\nORDER BY\n  id",
+                },
+                id="cte_with_subquery",
+            ),
         ],
     )
     def test_extract_lineage(self, file_path, expected):
@@ -368,11 +421,11 @@ class TestParser:
         """Test the SQL parser with various SQL files."""
         parser = SQLLineageParser(dialect="bigquery")
         result = parser.extract_lineages_from_file("tests/sql", glob="*.sql")
-        assert len(result.expressions) == 6
+        assert len(result.expressions) == 7
 
     @pytest.mark.asyncio
     async def test_aextract_lineages_from_file(self):
         """Test the SQL parser with various SQL files."""
         parser = SQLLineageParser(dialect="bigquery")
         result = await parser.aextract_lineages_from_file("tests/sql", glob="*.sql")
-        assert len(result.expressions) == 6
+        assert len(result.expressions) == 7
