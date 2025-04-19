@@ -68,7 +68,7 @@ class TestParser:
                         },
                         {
                             "target": "orders_with_tax",
-                            "column": "order_total",
+                            "column": "total_with_tax",
                             "source": "raw.orders.order_total",
                             "action": "TRANSFORM",
                         },
@@ -222,9 +222,9 @@ class TestParser:
                         },
                         {
                             "target": "unnest_example",
-                            "column": "orderid",
+                            "column": "order_id",
                             "source": "raw_orders.orderid",
-                            "action": "TRANSFORM",
+                            "action": "COPY",
                         },
                         {
                             "target": "unnest_example",
