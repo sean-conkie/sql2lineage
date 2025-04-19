@@ -2,8 +2,8 @@ with cte_with_subquery as (
     select
         id,
         name,
-        (select count(*) from test_table) as total_count
-    from test_table
+        total_count
+    from (select id, name, count(*) total_count from test_table group by 1,2)
 )
 select
     id,

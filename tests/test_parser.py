@@ -348,6 +348,12 @@ class TestParser:
                             "action": "COPY",
                         },
                         {
+                            "target": "cte_with_subquery",
+                            "column": "total_count",
+                            "source": "test_table.total_count",
+                            "action": "COPY",
+                        },
+                        {
                             "target": "expr000",
                             "column": "id",
                             "source": "cte_with_subquery.id",
@@ -379,7 +385,7 @@ class TestParser:
                         },
                     ],
                     "subqueries": {},
-                    "expression": "WITH cte_with_subquery AS (\n  SELECT\n    id,\n    name,\n    (\n      SELECT\n        COUNT(*)\n      FROM test_table\n    ) AS total_count\n  FROM test_table\n)\nSELECT\n  id,\n  name,\n  total_count\nFROM cte_with_subquery\nWHERE\n  total_count > 0\nORDER BY\n  id",
+                    "expression": "WITH cte_with_subquery AS (\n  SELECT\n    id,\n    name,\n    total_count\n  FROM (\n    SELECT\n      id,\n      name,\n      COUNT(*) AS total_count\n    FROM test_table\n    GROUP BY\n      1,\n      2\n  )\n)\nSELECT\n  id,\n  name,\n  total_count\nFROM cte_with_subquery\nWHERE\n  total_count > 0\nORDER BY\n  id",
                 },
                 id="cte_with_subquery",
             ),
