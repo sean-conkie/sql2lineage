@@ -227,23 +227,37 @@ class ParsedExpression(BaseModel):
 
             # find column aliases - transformations
             elif isinstance(select, Alias):
-                for column in select.find_all(Column):
-                    source_column = self._get_source_column(column, source)
-
-                    pattern = re.compile(
-                        f"(?: as) {column.alias_or_name}", re.IGNORECASE
-                    )
-                    sql = pattern.sub("", select.sql())
-                    action = "TRANSFORM" if sql != column.sql() else "COPY"
-
+                if isinstance(select.this, Column):
+                    # alias is a column
+                    source_column = self._get_source_column(select.this, source)
                     self.columns.add(
                         ColumnLineage(
                             target=target,
-                            column=column.alias_or_name,
+                            column=select.alias_or_name,
                             source=source_column,
-                            action=action,
+                            action="COPY",
                         )
                     )
+
+                else:
+
+                    for column in select.find_all(Column):
+                        source_column = self._get_source_column(column, source)
+
+                        pattern = re.compile(
+                            f"(?: as) {column.alias_or_name}", re.IGNORECASE
+                        )
+                        sql = pattern.sub("", select.sql())
+                        action = "TRANSFORM" if sql != column.sql() else "COPY"
+
+                        self.columns.add(
+                            ColumnLineage(
+                                target=target,
+                                column=select.alias_or_name,
+                                source=source_column,
+                                action=action,
+                            )
+                        )
 
             elif expression.find(Star):
                 for table in self.tables:
