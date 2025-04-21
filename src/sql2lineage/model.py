@@ -3,7 +3,7 @@
 # pylint: disable=no-member
 
 import re
-from typing import Dict, Optional, Set
+from typing import Dict, Literal, Optional, Set
 
 from pydantic import (
     BaseModel,
@@ -23,6 +23,10 @@ class SourceTable(BaseModel):
     target: str = Field(..., description="The output table of the source.")
     source: str = Field(..., description="The source table of the expression.")
     alias: Optional[str] = Field(None, description="The alias of the source table.")
+    type: Literal["TABLE", "SUBQUERY", "CTE", "UNNEST"] = Field(
+        "TABLE",
+        description="The type of the source table (e.g., 'TABLE', 'SUBQUERY', 'CTE').",
+    )
 
     def __hash__(self):
         return hash((self.target, self.source, self.alias))
@@ -112,6 +116,7 @@ class ParsedExpression(BaseModel):
                         "target": src.target,
                         "source": src.source,
                         "alias": src.alias,
+                        "table_type": src.type,
                     }
                     for src in self.tables
                 ],
@@ -386,6 +391,3 @@ class LineageResult(BaseModel):
     source: str = Field(..., description="The source of the lineage.")
     target: str = Field(..., description="The target of the lineage.")
     type: Optional[str] = Field(None, description="The type of the (e.g., 'COLUMN').")
-    action: Optional[str] = Field(
-        None, description="The action performed on the column (e.g., 'COPY')."
-    )

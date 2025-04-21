@@ -145,6 +145,7 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
                         target=cte_target,
                         source=source.source,
                         alias=source.alias,
+                        type="CTE",
                     )
                 )
 
@@ -179,6 +180,7 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
                                 target=parsed_expression.target,
                                 source=table.source,
                                 alias=table.alias,
+                                type="SUBQUERY",
                             )
                         )
 
@@ -193,6 +195,7 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
                         target=parsed_expression.target,
                         source=source_table,
                         alias=join.this.alias_or_name,
+                        type="UNNEST",
                     ),
                 )
 
@@ -203,6 +206,7 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
                         target=parsed_expression.target,
                         source=source_table,
                         alias=join.alias_or_name,
+                        type="TABLE",
                     ),
                 )
 
@@ -223,6 +227,7 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
                     target=parsed_expression.target,
                     source=source_table,
                     alias=source.alias_or_name,
+                    type="TABLE",
                 ),
             )
         elif isinstance(source, Subquery):
@@ -237,6 +242,7 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
                         target=parsed_expression.target,
                         source=subquery_source.source,
                         alias=subquery_source.alias,
+                        type="SUBQUERY",
                     )
                 )
 

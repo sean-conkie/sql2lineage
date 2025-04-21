@@ -6,6 +6,7 @@ This module defines a LineageGraph class that uses NetworkX to represent.
 from typing import List, Literal, Optional, Set
 
 import networkx as nx
+from networkx.exception import NetworkXError
 
 from sql2lineage.model import (
     ColumnLineage,
@@ -13,6 +14,46 @@ from sql2lineage.model import (
     ParsedExpression,
     SourceTable,
 )
+
+
+class IntermediateNodeStore:
+    """Class to store intermediate nodes."""
+
+    def __init__(self):
+        self._store = []
+
+    def __setitem__(self, key: str, value: str):
+        self._store.append((key, value))
+
+    def __getitem__(self, key: str) -> str:
+        for node in self._store:
+            if node[0] == key:
+                return node[1]
+        raise KeyError(f"Node {key} not found")
+
+    def __contains__(self, item: str) -> bool:
+        return any(key == item for key, _ in self._store)
+
+    def add(self, node: tuple[str, str]):
+        """Add a node to the internal storage.
+
+        Args:
+            node (tuple[str, str]): A tuple containing two strings representing the node to be added.
+
+        """
+        self._store.append(node)
+
+    def get(self, target: str) -> list[str]:
+        """Retrieve a list of values associated with a specific target from the internal store.
+
+        Args:
+            target (str): The target key to search for in the internal store.
+
+        Returns:
+            list[str]: A list of values corresponding to the given target key.
+
+        """
+        return [node[1] for node in self._store if node[0] == target]
 
 
 class LineageGraph:
@@ -24,6 +65,7 @@ class LineageGraph:
     _attrs = (
         "type",
         "action",
+        "table_type",
     )
 
     def __init__(self):
@@ -44,7 +86,9 @@ class LineageGraph:
 
         """
         for edge in table_edges:
-            self.graph.add_edge(edge.source, edge.target, type="TABLE")
+            self.graph.add_edge(
+                edge.source, edge.target, type="TABLE", table_type=edge.type
+            )
 
     def add_column_edges(self, column_edges: Set[ColumnLineage]):
         """Add edges representing column-level lineage to the graph.
@@ -253,6 +297,7 @@ class LineageGraph:
         node: str,
         node_type: Literal["COLUMN", "TABLE"] = "COLUMN",
         max_steps: Optional[int] = None,
+        physical_nodes_only: bool = False,
     ) -> List[List[LineageResult]]:
         """Retrieve the neighboring nodes of a given node in the lineage graph.
 
@@ -261,10 +306,14 @@ class LineageGraph:
 
         Args:
             node (str): The name of the node for which neighbors are to be retrieved.
-            node_type (Literal["COLUMN", "TABLE"], optional): The type of the node, either "COLUMN" or "TABLE".
-                Defaults to "COLUMN".
+            node_type (Literal["COLUMN", "TABLE"], optional): The type of the node, either "COLUMN"
+                or "TABLE". Defaults to "COLUMN".
             max_steps (Optional[int], optional): The maximum number of steps to traverse in the graph.
                 If None, the traversal is unbounded. Defaults to None.
+            physical_nodes_only (bool, optional): If True, only physical nodes are considered. This
+                means that intermediate nodes (e.g., CTEs, subqueries, and unnests) will be excluded
+                from the results.
+                Defaults to False.
 
         Returns:
             List[List[LineageResult]]: A list of chains, where each chain is a list of LineageResult objects
@@ -272,12 +321,64 @@ class LineageGraph:
 
         """
         chains = []
-        chains.extend(self.get_node_lineage(node, node_type, max_steps))
-        chains.extend(self.get_node_descendants(node, node_type, max_steps))
+        intermediate_nodes = IntermediateNodeStore()
+
+        def find_roots(node):
+            """Find the root nodes of a given node in the graph."""
+            if node in intermediate_nodes:
+                return [
+                    s
+                    for sublist in [find_roots(s) for s in intermediate_nodes.get(node)]
+                    for s in sublist
+                ]
+            else:
+                return [node]
+
+        try:
+            chains.extend(self.get_node_lineage(node, node_type, max_steps))
+        except NetworkXError:
+            # If the node is not found in the graph, we can skip it
+            pass
+
+        try:
+            chains.extend(self.get_node_descendants(node, node_type, max_steps))
+        except NetworkXError:
+            # If the node is not found in the graph, we can skip it
+            pass
+
+        if physical_nodes_only:
+            # first identify the intermediate nodes
+            for chain in list(chains):
+                for step in list(chain):
+                    if hasattr(step, "table_type") and step.table_type != "TABLE":
+                        intermediate_nodes[step.target] = step.source
+                        chain.remove(step)
+
+            # now we need to update the remaining chains with the intermediate nodes
+            new_chains = []
+            for chain in list(chains):
+                new_chain = []
+                for step in list(chain):
+
+                    if step.source in intermediate_nodes:
+                        sources = [
+                            sl
+                            for src in (
+                                find_roots(s)
+                                for s in intermediate_nodes.get(step.source)
+                            )
+                            for sl in src
+                        ]
+                        for source in sources:
+                            step.source = source
+                            new_chain.append(step)
+                new_chains.append(new_chain)
+            chains = new_chains
+
         return chains
 
     def _extract_path_steps(
-        self, path, max_steps: Optional[int] = None
+        self, path: str, max_steps: Optional[int] = None
     ) -> List[LineageResult]:
         """Extract detailed information about each step in a given path within the graph.
 
@@ -293,7 +394,7 @@ class LineageGraph:
 
         """
         step_info = []
-        for i in range(max_steps or len(path) - 1):
+        for i in range(min(max_steps or len(path), len(path) - 1)):
             u, v = path[i], path[i + 1]
             edge = self.graph.get_edge_data(u, v)
 
