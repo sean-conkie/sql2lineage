@@ -78,16 +78,19 @@ class TestParser:
                             "target": "big_orders",
                             "source": "filtered_orders",
                             "alias": "filtered_orders",
+                            "table_type": "TABLE",
                         },
                         {
                             "target": "filtered_orders",
                             "source": "orders_with_tax",
                             "alias": "orders_with_tax",
+                            "table_type": "CTE",
                         },
                         {
                             "target": "orders_with_tax",
                             "source": "raw.orders",
                             "alias": "orders",
+                            "table_type": "CTE",
                         },
                     ],
                     "subqueries": {},
@@ -124,8 +127,14 @@ class TestParser:
                             "target": "join_example",
                             "source": "raw.user_details",
                             "alias": "user_details",
+                            "table_type": "SUBQUERY",
                         },
-                        {"target": "join_example", "source": "raw.users", "alias": "a"},
+                        {
+                            "target": "join_example",
+                            "source": "raw.users",
+                            "alias": "a",
+                            "table_type": "TABLE",
+                        },
                     ],
                     "subqueries": {
                         "b": {
@@ -149,6 +158,7 @@ class TestParser:
                                     "target": "",
                                     "source": "raw.user_details",
                                     "alias": "user_details",
+                                    "table_type": "TABLE",
                                 }
                             ],
                             "subqueries": {},
@@ -189,8 +199,14 @@ class TestParser:
                             "target": "join_example",
                             "source": "raw.user_details",
                             "alias": "b",
+                            "table_type": "TABLE",
                         },
-                        {"target": "join_example", "source": "raw.users", "alias": "a"},
+                        {
+                            "target": "join_example",
+                            "source": "raw.users",
+                            "alias": "a",
+                            "table_type": "TABLE",
+                        },
                     ],
                     "subqueries": {},
                     "expression": "CREATE TABLE join_example AS\nSELECT\n  a.id AS id,\n  a.name,\n  b.age AS age\nFROM raw.users AS a\nJOIN raw.user_details AS b\n  ON a.id = b.id\nWHERE\n  NOT a.name IS NULL AND b.age > 18",
@@ -250,11 +266,13 @@ class TestParser:
                             "target": "unnest_example",
                             "source": "raw_orders",
                             "alias": "",
+                            "table_type": "UNNEST",
                         },
                         {
                             "target": "unnest_example",
                             "source": "raw_orders",
                             "alias": "src",
+                            "table_type": "TABLE",
                         },
                     ],
                     "subqueries": {},
@@ -285,6 +303,7 @@ class TestParser:
                             "target": "from_subquery",
                             "source": "raw.user_details",
                             "alias": "user_details",
+                            "table_type": "SUBQUERY",
                         }
                     ],
                     "subqueries": {
@@ -309,6 +328,7 @@ class TestParser:
                                     "target": "",
                                     "source": "raw.user_details",
                                     "alias": "user_details",
+                                    "table_type": "TABLE",
                                 }
                             ],
                             "subqueries": {},
@@ -377,11 +397,13 @@ class TestParser:
                             "target": "cte_with_subquery",
                             "source": "test_table",
                             "alias": "test_table",
+                            "table_type": "CTE",
                         },
                         {
                             "target": "expr000",
                             "source": "cte_with_subquery",
                             "alias": "cte_with_subquery",
+                            "table_type": "TABLE",
                         },
                     ],
                     "subqueries": {},

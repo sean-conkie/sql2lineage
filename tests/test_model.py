@@ -34,12 +34,14 @@ class TestSourceTable:
             source="source_table",
             target="target_table",
             alias="alias_name",
+            type="TABLE",
         )
 
         assert source_table.model_dump() == {
             "source": "source_table",
             "target": "target_table",
             "alias": "alias_name",
+            "type": "TABLE",
         }
 
 
@@ -63,6 +65,7 @@ class TestParsedExpression:
                 source="source_table",
                 target="target_table",
                 alias="alias_name",
+                type="TABLE",
             )
         )
 
@@ -81,6 +84,7 @@ class TestParsedExpression:
                     "source": "source_table",
                     "target": "target_table",
                     "alias": "alias_name",
+                    "table_type": "TABLE",
                 }
             ],
             "subqueries": {},
@@ -108,6 +112,7 @@ class TestParsedResult:
                 source="source_table",
                 target="target_table",
                 alias="alias_name",
+                type="TABLE",
             )
         )
 
@@ -131,6 +136,7 @@ class TestParsedResult:
                             "source": "source_table",
                             "target": "target_table",
                             "alias": "alias_name",
+                            "table_type": "TABLE",
                         }
                     ],
                     "subqueries": {},
