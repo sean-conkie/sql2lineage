@@ -40,7 +40,7 @@ class ColumnLineage(BaseModel):
     """Column lineage information."""
 
     target: str = Field(..., description="The ouput column name.")
-    source: Optional[str] = Field(None, description="The source column name.")
+    source: str = Field(..., description="The source column name.")
     action: Optional[str] = Field(
         None, description="The action performed on the column."
     )
@@ -230,7 +230,7 @@ class ParsedExpression(BaseModel):
                 self.columns.add(
                     ColumnLineage(
                         target=f"{target}.{select.alias_or_name}",
-                        source=source_column,
+                        source=source_column or "",
                         action="COPY",
                         table_type=table_type or "TABLE",
                     )
@@ -246,7 +246,7 @@ class ParsedExpression(BaseModel):
                     self.columns.add(
                         ColumnLineage(
                             target=f"{target}.{select.alias_or_name}",
-                            source=source_column,
+                            source=source_column or "",
                             action="COPY",
                             table_type=table_type or "TABLE",
                         )
@@ -268,7 +268,7 @@ class ParsedExpression(BaseModel):
                         self.columns.add(
                             ColumnLineage(
                                 target=f"{target}.{select.alias_or_name}",
-                                source=source_column,
+                                source=source_column or "",
                                 action=action,
                                 table_type=table_type or "TABLE",
                             )

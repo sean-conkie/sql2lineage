@@ -3,10 +3,11 @@
 This module defines a LineageGraph class that uses NetworkX to represent.
 """
 
-from typing import List, Literal, Optional, Set, cast
+from typing import List, Literal, Optional, Sequence, Set, cast
 
 import networkx as nx
 from networkx.exception import NetworkXError
+from pydantic import BaseModel
 
 from sql2lineage.model import (
     ColumnLineage,
@@ -14,6 +15,7 @@ from sql2lineage.model import (
     ParsedExpression,
     SourceTable,
 )
+from sql2lineage.types.utils import NodeProtocol
 from sql2lineage.utils import filter_intermediate_nodes
 
 
@@ -32,6 +34,30 @@ class LineageGraph:
     def __init__(self):
         self.graph = nx.DiGraph()
 
+    def add_edges(self, edges: Sequence[NodeProtocol]):
+        """Add edges to the graph.
+
+        This method takes a set of nodes and adds them as edges to the graph.
+        Each edge is represented by a tuple of source and target nodes.
+
+        Args:
+            edges (Set[NodeProtocol]): A set of nodes representing the edges
+                to be added to the graph.
+
+        """
+        for edge in edges:
+            if isinstance(edge, BaseModel):
+                # if the edge is a BaseModel we might have extra attributes
+                # that we want to add to the graph
+                attrs = edge.model_dump(exclude_unset=True, exclude_none=True)
+                source = attrs.pop("source")
+                target = attrs.pop("target")
+
+                self.graph.add_edge(source, target, **attrs)
+            else:
+                # if the edge is not a BaseModel we just add it as is
+                self.graph.add_edge(edge.source, edge.target)
+
     def add_table_edges(self, table_edges: Set[SourceTable]):
         """Add edges representing table relationships to the graph.
 
@@ -46,10 +72,7 @@ class LineageGraph:
                 contains a source table and a target table.
 
         """
-        for edge in table_edges:
-            self.graph.add_edge(
-                edge.source, edge.target, type="TABLE", table_type=edge.type
-            )
+        self.add_edges(list(table_edges))
 
     def add_column_edges(self, column_edges: Set[ColumnLineage]):
         """Add edges representing column-level lineage to the graph.
@@ -63,13 +86,7 @@ class LineageGraph:
                 source and a target column, along with the action performed.
 
         """
-        for edge in column_edges:
-            self.graph.add_edge(
-                edge.source,
-                edge.target,
-                type="COLUMN",
-                action=edge.action,
-            )
+        self.add_edges(list(column_edges))
 
     def pretty_string(self) -> str:
         """Generate a human-readable string representation of the graph's edges.
