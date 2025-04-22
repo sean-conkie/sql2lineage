@@ -1,10 +1,11 @@
 """Utility functions for SQL lineage extraction."""
 
-from typing import List, Protocol, Sequence, TypeVar
+from typing import List, Protocol, Sequence, TypeVar, Union, runtime_checkable
 
 from pydantic import BaseModel
 
 
+@runtime_checkable
 class NodeProtocol(Protocol):
     """Protocol for a node in the lineage graph."""
 
@@ -55,8 +56,78 @@ class IntermediateNodeStore:
         return [node[1] for node in self._store if node[0] == target]
 
 
+def validate_chains(
+    chains: Union[
+        Sequence[Sequence[NodeProtocol]], Sequence[NodeProtocol], NodeProtocol
+    ],
+) -> List[List[NodeProtocol]]:
+    """Validate and normalise the input `chains` into a list of lists of `NodeProtocol` instances.
+
+    This function handles three cases:
+    1. If `chains` is a single `NodeProtocol` instance, it wraps it in a nested list.
+    2. If `chains` is a sequence of `NodeProtocol` instances, it wraps the sequence in a list.
+    3. If `chains` is a sequence of sequences of `NodeProtocol` instances, it validates and normalizes each sequence.
+
+    Args:
+        chains (Union[Sequence[Sequence[NodeProtocol]], Sequence[NodeProtocol], NodeProtocol]):
+            The input to validate and normalize. It can be:
+            - A single `NodeProtocol` instance.
+            - A sequence of `NodeProtocol` instances.
+            - A sequence of sequences of `NodeProtocol` instances.
+
+    Returns:
+        List[List[NodeProtocol]]: A normalized list of lists of `NodeProtocol` instances.
+
+    Raises:
+        ValueError: If `chains` is not a `NodeProtocol` or a sequence thereof, or if any element
+                    in the sequence does not conform to `NodeProtocol`.
+
+    """
+    # Case 1: chains is a single NodeProtocol instance.
+    if isinstance(chains, NodeProtocol):
+        return [[chains]]
+
+    # At this point we expect chains to be a sequence.
+    if not isinstance(chains, Sequence):
+        raise ValueError("chains must be a NodeProtocol or a sequence thereof.")
+
+    # If chains is an empty sequence, return an empty list.
+    if not chains:
+        return []
+
+    # Case 2: chains is a sequence of NodeProtocol instances.
+    # Check the first element.
+    if isinstance(chains[0], NodeProtocol):
+        # Further verify each element in the sequence.
+        for item in chains:
+            if not isinstance(item, NodeProtocol):
+                raise ValueError(
+                    "All items in the sequence must conform to NodeProtocol."
+                )
+        # Wrap in a list since the outer structure should be a list of lists.
+        return [list(chains)]  # type: ignore
+
+    # Case 3: chains is a sequence of sequences of NodeProtocol instances.
+    normalized_chains = []
+    for idx, chain in enumerate(chains):
+        if not isinstance(chain, Sequence):
+            raise ValueError(
+                f"Element at index {idx} is not a sequence of NodeProtocol."
+            )
+        # Allow empty chains, or verify that all elements in the chain are NodeProtocol.
+        chain_list = list(chain)
+        for node in chain_list:
+            if not isinstance(node, NodeProtocol):
+                raise ValueError(
+                    f"An item in chain {idx} does not conform to NodeProtocol."
+                )
+        normalized_chains.append(chain_list)
+
+    return normalized_chains
+
+
 def filter_intermediate_nodes(
-    chains: Sequence[Sequence[NodeProtocol]],
+    chains: Sequence[Sequence[NodeProtocol]] | Sequence[NodeProtocol] | NodeProtocol,
 ) -> List[List[NodeProtocol]]:
     """Filter out intermediate nodes from a sequence of chain.
 
@@ -64,8 +135,9 @@ def filter_intermediate_nodes(
     root nodes in the resulting chains.
 
     Args:
-        chains (Sequence[Sequence[NodeProtocol]]): A sequence of chains, where each chain
-            is a sequence of nodes implementing the `NodeProtocol`.
+        chains (Sequence[Sequence[NodeProtocol]] | Sequence[NodeProtocol] | NodeProtocol): A
+            sequence of chains, where each chain is a sequence of nodes implementing the
+            `NodeProtocol`.
 
     Returns:
         List[List[NodeProtocol]]: A list of updated chains with intermediate nodes removed
@@ -103,10 +175,10 @@ def filter_intermediate_nodes(
             return False
         return _type != check
 
-    chains = [list(chain) for chain in chains]
+    validated_chains = validate_chains(chains)
 
     # first identify the intermediate nodes
-    for chain in list(chains):
+    for chain in validated_chains:
         for step in list(chain):
             if check_type(step):
                 intermediate_nodes[step.target] = step.source
@@ -114,7 +186,7 @@ def filter_intermediate_nodes(
 
     # now we need to update the remaining chains with the intermediate nodes
     new_chains = []
-    for chain in list(chains):
+    for chain in validated_chains:
         new_chain = []
         for step in list(chain):
 

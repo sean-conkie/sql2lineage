@@ -57,6 +57,7 @@ profile = "black"
 convention = "google"
 
 [tool.ruff]
+extend-exclude = [ "tests" ]
 respect-gitignore = true
 line-length = 120
 indent-width = 4
