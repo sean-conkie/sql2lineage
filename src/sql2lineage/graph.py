@@ -302,7 +302,7 @@ class LineageGraph:
         return chains
 
     def _extract_path_steps(
-        self, path: str, max_steps: Optional[int] = None
+        self, path: list, max_steps: Optional[int] = None
     ) -> List[LineageResult]:
         """Extract detailed information about each step in a given path within the graph.
 

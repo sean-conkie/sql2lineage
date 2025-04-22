@@ -57,6 +57,7 @@ profile = "black"
 convention = "google"
 
 [tool.ruff]
+extend-exclude = [ "tests" ]
 respect-gitignore = true
 line-length = 120
 indent-width = 4
@@ -65,7 +66,7 @@ unsafe-fixes = true
 target-version = "py312"
 
 [tool.pyright]
-exclude = [ "venv" ]
+exclude = [ ".venv", "tests" ]
 venvPath = "."
 venv = ".venv"
 pythonVersion = "3.12"
