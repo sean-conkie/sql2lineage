@@ -11,17 +11,17 @@ class TestColumnLineage:
     def test_serialize(self):
         """Test column lineage."""
         c = ColumnLineage(
-            source="source_table",
+            source="source_table.column_name",
             target="target_table",
-            column="column_name",
             action="COPY",
+            table_type="TABLE",
         )
 
         assert c.model_dump() == {
-            "source": "source_table",
+            "source": "source_table.column_name",
             "target": "target_table",
-            "column": "column_name",
             "action": "COPY",
+            "table_type": "TABLE",
         }
 
 
@@ -53,10 +53,10 @@ class TestParsedExpression:
         parsed_expression = ParsedExpression(target="target_table", expression="")
         parsed_expression.columns.add(
             ColumnLineage(
-                source="source_table",
+                source="source_table.column_name",
                 target="target_table",
-                column="column_name",
                 action="COPY",
+                table_type="TABLE",
             )
         )
 
@@ -73,10 +73,10 @@ class TestParsedExpression:
             "target": "target_table",
             "columns": [
                 {
-                    "source": "source_table",
+                    "source": "source_table.column_name",
                     "target": "target_table",
-                    "column": "column_name",
                     "action": "COPY",
+                    "table_type": "TABLE",
                 }
             ],
             "tables": [
@@ -100,10 +100,10 @@ class TestParsedResult:
         parsed_expression = ParsedExpression(target="target_table", expression="")
         parsed_expression.columns.add(
             ColumnLineage(
-                source="source_table",
+                source="source_table.column_name",
                 target="target_table",
-                column="column_name",
                 action="COPY",
+                table_type="TABLE",
             )
         )
 
@@ -125,10 +125,10 @@ class TestParsedResult:
                     "target": "target_table",
                     "columns": [
                         {
-                            "source": "source_table",
+                            "source": "source_table.column_name",
                             "target": "target_table",
-                            "column": "column_name",
                             "action": "COPY",
+                            "table_type": "TABLE",
                         }
                     ],
                     "tables": [
@@ -148,14 +148,15 @@ class TestParsedResult:
                     "source": "source_table",
                     "target": "target_table",
                     "alias": "alias_name",
+                    "table_type": "TABLE",
                 }
             ],
             "columns": [
                 {
-                    "source": "source_table",
+                    "source": "source_table.column_name",
                     "target": "target_table",
-                    "column": "column_name",
                     "action": "COPY",
+                    "table_type": "TABLE",
                 }
             ],
         }

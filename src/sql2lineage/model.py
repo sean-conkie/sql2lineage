@@ -106,14 +106,15 @@ class ParsedExpression(BaseModel):
                         "target": col.target,
                         "source": col.source,
                         "action": col.action,
+                        "table_type": col.table_type,
                     }
                     for col in self.columns
                 ],
                 key=lambda entry: (
                     entry["target"],
-                    entry["column"],
                     entry["source"],
                     entry["action"],
+                    entry["table_type"],
                 ),
             ),
             "tables": sorted(
@@ -130,6 +131,7 @@ class ParsedExpression(BaseModel):
                     entry["target"],
                     entry["source"],
                     entry["alias"],
+                    entry["table_type"],
                 ),
             ),
             "subqueries": {
@@ -363,14 +365,15 @@ class ParsedResult(BaseModel):
                         "target": col.target,
                         "source": col.source,
                         "action": col.action,
+                        "table_type": col.table_type,
                     }
                     for col in self._columns
                 ],
                 key=lambda entry: (
                     entry["target"],
-                    entry["column"],
                     entry["source"],
                     entry["action"],
+                    entry["table_type"],
                 ),
             ),
             "tables": sorted(
@@ -379,6 +382,7 @@ class ParsedResult(BaseModel):
                         "target": src.target,
                         "source": src.source,
                         "alias": src.alias,
+                        "table_type": src.type,
                     }
                     for src in self._tables
                 ],
@@ -386,6 +390,7 @@ class ParsedResult(BaseModel):
                     entry["target"],
                     entry["source"],
                     entry["alias"],
+                    entry["table_type"],
                 ),
             ),
         }
