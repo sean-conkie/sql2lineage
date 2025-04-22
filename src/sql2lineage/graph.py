@@ -29,7 +29,9 @@ class LineageGraph:
         "type",
         "action",
         "table_type",
+        "node_type",
     )
+    """Attributes to be taken from the edges of the graph."""
 
     def __init__(self):
         self.graph = nx.DiGraph()
@@ -152,8 +154,8 @@ class LineageGraph:
 
         """
         for expression in parsed_expressions:
-            self.add_table_edges(expression.tables)
-            self.add_column_edges(expression.columns)
+            self.add_edges(list(expression.tables))
+            self.add_edges(list(expression.columns))
 
     def is_root_node(
         self, node: str, node_type: Literal["COLUMN", "TABLE"] = "COLUMN"
@@ -172,7 +174,7 @@ class LineageGraph:
 
         """
         return all(
-            self.graph.edges[u, node].get("type") != node_type
+            self.graph.edges[u, node].get("node_type") != node_type
             for u in self.graph.predecessors(node)
         )
 
@@ -194,7 +196,7 @@ class LineageGraph:
 
         """
         return all(
-            self.graph.edges[node, u].get("type") != node_type
+            self.graph.edges[node, u].get("node_type") != node_type
             for u in self.graph.successors(node)
         )
 
