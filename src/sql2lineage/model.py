@@ -3,7 +3,7 @@
 # pylint: disable=no-member
 
 import re
-from typing import Dict, Literal, Optional, Set, Tuple, TypeAlias
+from typing import Dict, Optional, Set, Tuple
 
 from pydantic import (
     BaseModel,
@@ -16,7 +16,7 @@ from pydantic.config import ConfigDict
 from sqlglot import Expression
 from sqlglot.expressions import Alias, Column, Star
 
-TableType: TypeAlias = Literal["TABLE", "SUBQUERY", "CTE", "UNNEST"]
+from sql2lineage.types.model import TableType
 
 
 class SourceTable(BaseModel):

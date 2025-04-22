@@ -1,14 +1,8 @@
 """Utility functions for SQL lineage extraction."""
 
-from typing import List, Optional, Protocol, Sequence, Tuple, Union, runtime_checkable
+from typing import List, Sequence, Tuple, Union
 
-
-@runtime_checkable
-class NodeProtocol(Protocol):
-    """Protocol for a node in the lineage graph."""
-
-    source: str
-    target: Optional[str]
+from sql2lineage.types.utils import NodeProtocol
 
 
 class IntermediateNodeStore:
