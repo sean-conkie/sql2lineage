@@ -3,7 +3,7 @@
 # pylint: disable=no-member
 
 import re
-from typing import Dict, Literal, Optional, Set, TypeAlias
+from typing import Dict, Literal, Optional, Set, Tuple, TypeAlias
 
 from pydantic import (
     BaseModel,
@@ -39,15 +39,18 @@ class SourceTable(BaseModel):
 class ColumnLineage(BaseModel):
     """Column lineage information."""
 
-    target: Optional[str] = Field(None, description="The output table of the column.")
-    column: Optional[str] = Field(None, description="The column name.")
+    target: str = Field(..., description="The ouput column name.")
     source: Optional[str] = Field(None, description="The source column name.")
     action: Optional[str] = Field(
         None, description="The action performed on the column."
     )
+    table_type: TableType = Field(
+        "TABLE",
+        description="The type of the source table (e.g., 'TABLE', 'SUBQUERY', 'CTE').",
+    )
 
     def __hash__(self):
-        return hash((self.target, self.column, self.source, self.action))
+        return hash((self.target, self.source, self.action, self.table_type))
 
 
 class ParsedExpression(BaseModel):
@@ -101,7 +104,6 @@ class ParsedExpression(BaseModel):
                 [
                     {
                         "target": col.target,
-                        "column": col.column,
                         "source": col.source,
                         "action": col.action,
                     }
@@ -140,7 +142,7 @@ class ParsedExpression(BaseModel):
         self,
         column: Column,
         source_table: Optional[str],
-    ) -> str:
+    ) -> Tuple[Optional[str], Optional[TableType]]:
         """Construct the fully qualified name of a source column.
 
         Args:
@@ -161,8 +163,7 @@ class ParsedExpression(BaseModel):
         elif column.table:
             for _source_table in self.tables:
                 if column.table == _source_table.alias:
-                    source_column = f"{_source_table.source}.{column.name}"
-                    break
+                    return f"{_source_table.source}.{column.name}", _source_table.type
 
             # check subqueries
             if source_column is None:
@@ -170,14 +171,13 @@ class ParsedExpression(BaseModel):
                 if subquery:
                     # does the column exist in the subquery?
                     for col in subquery.columns:
-                        if col.column == column.name:
-                            source_column = col.source
-                            break
+                        if col.target.split(".")[-1] == column.name:
+                            return col.source, "SUBQUERY"
 
         if source_column is None:
             source_column = ".".join([identifier.name for identifier in column.parts])
 
-        return source_column
+        return source_column, "TABLE"
 
     def update_column_lineage(
         self,
@@ -223,14 +223,14 @@ class ParsedExpression(BaseModel):
 
             if isinstance(select, Column):
 
-                source_column = self._get_source_column(select, source)
+                source_column, table_type = self._get_source_column(select, source)
 
                 self.columns.add(
                     ColumnLineage(
-                        target=target,
-                        column=select.alias_or_name,
+                        target=f"{target}.{select.alias_or_name}",
                         source=source_column,
                         action="COPY",
+                        table_type=table_type or "TABLE",
                     )
                 )
 
@@ -238,20 +238,24 @@ class ParsedExpression(BaseModel):
             elif isinstance(select, Alias):
                 if isinstance(select.this, Column):
                     # alias is a column
-                    source_column = self._get_source_column(select.this, source)
+                    source_column, table_type = self._get_source_column(
+                        select.this, source
+                    )
                     self.columns.add(
                         ColumnLineage(
-                            target=target,
-                            column=select.alias_or_name,
+                            target=f"{target}.{select.alias_or_name}",
                             source=source_column,
                             action="COPY",
+                            table_type=table_type or "TABLE",
                         )
                     )
 
                 else:
 
                     for column in select.find_all(Column):
-                        source_column = self._get_source_column(column, source)
+                        source_column, table_type = self._get_source_column(
+                            column, source
+                        )
 
                         pattern = re.compile(
                             f"(?: as) {column.alias_or_name}", re.IGNORECASE
@@ -261,10 +265,10 @@ class ParsedExpression(BaseModel):
 
                         self.columns.add(
                             ColumnLineage(
-                                target=target,
-                                column=select.alias_or_name,
+                                target=f"{target}.{select.alias_or_name}",
                                 source=source_column,
                                 action=action,
+                                table_type=table_type or "TABLE",
                             )
                         )
 
@@ -273,12 +277,13 @@ class ParsedExpression(BaseModel):
                     if table.target == target:
                         for col in list(self.columns):
                             if col.target == table.source:
+                                _column = col.target.split(".")[-1]
                                 self.columns.add(
                                     ColumnLineage(
-                                        target=target,
-                                        column=col.column,
-                                        source=f"{table.source}.{col.column}",
+                                        target=f"{target}.{_column}",
+                                        source=f"{table.source}.{_column}",
                                         action="COPY",
+                                        table_type=table.type,
                                     )
                                 )
 
@@ -356,7 +361,6 @@ class ParsedResult(BaseModel):
                 [
                     {
                         "target": col.target,
-                        "column": col.column,
                         "source": col.source,
                         "action": col.action,
                     }

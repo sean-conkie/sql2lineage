@@ -66,7 +66,7 @@ class LineageGraph:
         for edge in column_edges:
             self.graph.add_edge(
                 edge.source,
-                f"{edge.target}.{edge.column}",
+                edge.target,
                 type="COLUMN",
                 action=edge.action,
             )
