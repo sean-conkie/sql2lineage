@@ -3,7 +3,7 @@
 This module defines a LineageGraph class that uses NetworkX to represent.
 """
 
-from typing import List, Literal, Optional, Set
+from typing import List, Literal, Optional, Set, cast
 
 import networkx as nx
 from networkx.exception import NetworkXError
@@ -14,46 +14,7 @@ from sql2lineage.model import (
     ParsedExpression,
     SourceTable,
 )
-
-
-class IntermediateNodeStore:
-    """Class to store intermediate nodes."""
-
-    def __init__(self):
-        self._store = []
-
-    def __setitem__(self, key: str, value: str):
-        self._store.append((key, value))
-
-    def __getitem__(self, key: str) -> str:
-        for node in self._store:
-            if node[0] == key:
-                return node[1]
-        raise KeyError(f"Node {key} not found")
-
-    def __contains__(self, item: str) -> bool:
-        return any(key == item for key, _ in self._store)
-
-    def add(self, node: tuple[str, str]):
-        """Add a node to the internal storage.
-
-        Args:
-            node (tuple[str, str]): A tuple containing two strings representing the node to be added.
-
-        """
-        self._store.append(node)
-
-    def get(self, target: str) -> list[str]:
-        """Retrieve a list of values associated with a specific target from the internal store.
-
-        Args:
-            target (str): The target key to search for in the internal store.
-
-        Returns:
-            list[str]: A list of values corresponding to the given target key.
-
-        """
-        return [node[1] for node in self._store if node[0] == target]
+from sql2lineage.utils import filter_intermediate_nodes
 
 
 class LineageGraph:
@@ -321,18 +282,6 @@ class LineageGraph:
 
         """
         chains = []
-        intermediate_nodes = IntermediateNodeStore()
-
-        def find_roots(node):
-            """Find the root nodes of a given node in the graph."""
-            if node in intermediate_nodes:
-                return [
-                    s
-                    for sublist in [find_roots(s) for s in intermediate_nodes.get(node)]
-                    for s in sublist
-                ]
-            else:
-                return [node]
 
         try:
             chains.extend(self.get_node_lineage(node, node_type, max_steps))
@@ -347,33 +296,8 @@ class LineageGraph:
             pass
 
         if physical_nodes_only:
-            # first identify the intermediate nodes
-            for chain in list(chains):
-                for step in list(chain):
-                    if hasattr(step, "table_type") and step.table_type != "TABLE":
-                        intermediate_nodes[step.target] = step.source
-                        chain.remove(step)
-
-            # now we need to update the remaining chains with the intermediate nodes
-            new_chains = []
-            for chain in list(chains):
-                new_chain = []
-                for step in list(chain):
-
-                    if step.source in intermediate_nodes:
-                        sources = [
-                            sl
-                            for src in (
-                                find_roots(s)
-                                for s in intermediate_nodes.get(step.source)
-                            )
-                            for sl in src
-                        ]
-                        for source in sources:
-                            step.source = source
-                            new_chain.append(step)
-                new_chains.append(new_chain)
-            chains = new_chains
+            chains = filter_intermediate_nodes(chains)
+            chains = cast(List[List[LineageResult]], chains)
 
         return chains
 
