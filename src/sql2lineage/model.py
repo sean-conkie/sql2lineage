@@ -3,7 +3,7 @@
 # pylint: disable=no-member
 
 import re
-from typing import Dict, Literal, Optional, Set
+from typing import Dict, Literal, Optional, Set, TypeAlias
 
 from pydantic import (
     BaseModel,
@@ -16,14 +16,18 @@ from pydantic.config import ConfigDict
 from sqlglot import Expression
 from sqlglot.expressions import Alias, Column, Star
 
+TableType: TypeAlias = Literal["TABLE", "SUBQUERY", "CTE", "UNNEST"]
+
 
 class SourceTable(BaseModel):
     """Source table information."""
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     target: str = Field(..., description="The output table of the source.")
     source: str = Field(..., description="The source table of the expression.")
     alias: Optional[str] = Field(None, description="The alias of the source table.")
-    type: Literal["TABLE", "SUBQUERY", "CTE", "UNNEST"] = Field(
+    type: TableType = Field(
         "TABLE",
         description="The type of the source table (e.g., 'TABLE', 'SUBQUERY', 'CTE').",
     )
