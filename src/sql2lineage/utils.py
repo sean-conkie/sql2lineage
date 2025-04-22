@@ -129,6 +129,8 @@ def filter_intermediate_nodes(
                 for source in sources:
                     step.source = source
                     new_chain.append(step)
+            else:
+                new_chain.append(step)
         new_chains.append(new_chain)
 
     # remove empty chains
