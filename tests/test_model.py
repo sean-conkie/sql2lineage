@@ -22,6 +22,7 @@ class TestColumnLineage:
             "target": "target_table",
             "action": "COPY",
             "table_type": "TABLE",
+            "node_type": "COLUMN",
         }
 
 
@@ -41,6 +42,7 @@ class TestSourceTable:
             "source": "source_table",
             "target": "target_table",
             "alias": "alias_name",
+            "node_type": "TABLE",
             "type": "TABLE",
         }
 

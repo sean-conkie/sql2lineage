@@ -35,6 +35,12 @@ class SourceTable(BaseModel):
     def __hash__(self):
         return hash((self.target, self.source, self.alias))
 
+    @computed_field
+    @property
+    def node_type(self) -> str:
+        """Get the node type of the source table."""
+        return "TABLE"
+
 
 class ColumnLineage(BaseModel):
     """Column lineage information."""
@@ -51,6 +57,12 @@ class ColumnLineage(BaseModel):
 
     def __hash__(self):
         return hash((self.target, self.source, self.action, self.table_type))
+
+    @computed_field
+    @property
+    def node_type(self) -> str:
+        """Get the node type of the column lineage."""
+        return "COLUMN"
 
 
 class ParsedExpression(BaseModel):
@@ -278,12 +290,13 @@ class ParsedExpression(BaseModel):
                 for table in self.tables:
                     if table.target == target:
                         for col in list(self.columns):
-                            if col.target == table.source:
-                                _column = col.target.split(".")[-1]
+                            column_target = ".".join(col.target.split(".")[:-1])
+                            column_column = col.target.split(".")[-1]
+                            if column_target == table.source:
                                 self.columns.add(
                                     ColumnLineage(
-                                        target=f"{target}.{_column}",
-                                        source=f"{table.source}.{_column}",
+                                        target=f"{target}.{column_column}",
+                                        source=f"{table.source}.{column_column}",
                                         action="COPY",
                                         table_type=table.type,
                                     )
@@ -403,4 +416,6 @@ class LineageResult(BaseModel):
 
     source: str = Field(..., description="The source of the lineage.")
     target: str = Field(..., description="The target of the lineage.")
-    type: Optional[str] = Field(None, description="The type of the (e.g., 'COLUMN').")
+    node_type: Optional[str] = Field(
+        None, description="The type of the node (e.g., 'COLUMN')."
+    )
