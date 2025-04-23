@@ -3,18 +3,18 @@ from typing import Optional
 import pytest
 
 from sql2lineage.utils import (
-    IntermediateNodeStore,
+    SimpleTupleStore,
     filter_intermediate_nodes,
     validate_chains,
 )
 
 
-class TestIntermediateNodeStore:
-    """Test IntermediateNodeStore."""
+class TestSimpleTupleStore:
+    """Test SimpleTupleStore[str, str]."""
 
     def test_setitem_and_getitem(self):
         """Test that using __setitem__ and __getitem__ works correctly."""
-        store = IntermediateNodeStore()
+        store = SimpleTupleStore[str, str]()
         store["node1"] = "value1"
         store["node2"] = "value2"
         assert store["node1"] == "value1"
@@ -22,14 +22,14 @@ class TestIntermediateNodeStore:
 
     def test_getitem_keyerror(self):
         """Test that __getitem__ raises a KeyError for missing keys."""
-        store = IntermediateNodeStore()
+        store = SimpleTupleStore[str, str]()
         store["node1"] = "value1"
         with pytest.raises(KeyError):
             _ = store["non_existing_node"]
 
     def test_contains(self):
         """Test that __contains__ correctly identifies existing and non-existing keys."""
-        store = IntermediateNodeStore()
+        store = SimpleTupleStore[str, str]()
         store["node1"] = "value1"
         store.add(("node2", "value2"))
         assert "node1" in store
@@ -38,13 +38,13 @@ class TestIntermediateNodeStore:
 
     def test_add_method(self):
         """Test that the add() method correctly adds nodes."""
-        store = IntermediateNodeStore()
+        store = SimpleTupleStore[str, str]()
         store.add(("node3", "value3"))
         assert store["node3"] == "value3"
 
     def test_duplicate_keys(self):
         """Test that duplicate keys return the first inserted value when using __getitem__."""
-        store = IntermediateNodeStore()
+        store = SimpleTupleStore[str, str]()
         store["node_dup"] = "first_value"
         store.add(("node_dup", "second_value"))
         # __getitem__ should return the value from the first occurrence.
@@ -52,14 +52,14 @@ class TestIntermediateNodeStore:
 
     def test_len(self):
         """Test that __len__ returns the correct number of items."""
-        store = IntermediateNodeStore()
+        store = SimpleTupleStore[str, str]()
         store["node1"] = "value1"
         store.add(("node2", "value2"))
         assert len(store) == 2
 
     def test_iter(self):
         """Test that __iter__ returns an iterator over the store."""
-        store = IntermediateNodeStore()
+        store = SimpleTupleStore[str, str]()
         store["node1"] = "value1"
         store.add(("node2", "value2"))
         keys = [key for key, _ in store]
@@ -67,12 +67,12 @@ class TestIntermediateNodeStore:
 
     def test_repr(self):
         """Test that __repr__ returns a string representation of the store."""
-        store = IntermediateNodeStore()
+        store = SimpleTupleStore[str, str]()
         store["node1"] = "value1"
         store.add(("node2", "value2"))
         assert (
             repr(store)
-            == "IntermediateNodeStore([('node1', 'value1'), ('node2', 'value2')])"
+            == "SimpleTupleStore([('node1', 'value1'), ('node2', 'value2')])"
         )
 
 
@@ -127,12 +127,12 @@ class TestValidateChains:
             pytest.param(123, id="integer"),
             pytest.param(123.45, id="float"),
             pytest.param({"key": "value"}, id="dict"),
-            pytest.param(IntermediateNodeStore(), id="intermediate_node_store"),
+            pytest.param(SimpleTupleStore[str, str](), id="intermediate_node_store"),
             pytest.param(
-                [IntermediateNodeStore()], id="list_of_intermediate_node_store"
+                [SimpleTupleStore[str, str]()], id="list_of_intermediate_node_store"
             ),
             pytest.param(
-                [[IntermediateNodeStore()], [IntermediateNodeStore()]],
+                [[SimpleTupleStore[str, str]()], [SimpleTupleStore[str, str]()]],
                 id="list_of_list_of_intermediate_node_store",
             ),
         ],

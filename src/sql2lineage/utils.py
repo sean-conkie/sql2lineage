@@ -1,59 +1,76 @@
 """Utility functions for SQL lineage extraction."""
 
-from typing import List, Sequence, Tuple, Union
+from typing import Generic, Iterator, List, Sequence, Tuple, TypeVar, Union
 
 from sql2lineage.types.utils import NodeProtocol
 
+# Define two type variables for the key and value.
+T = TypeVar("T")
+V = TypeVar("V")
 
-class IntermediateNodeStore:
-    """Class to store intermediate nodes."""
 
-    def __init__(self):
-        self._store = []
+class SimpleTupleStore(Generic[T, V]):
+    """A simple tuple store that allows for storing unique tuples.
 
-    def __setitem__(self, key: str, value: str):
+    The store is generic in that it can store tuples of any (T, V).
+    For example, SimpleTupleStore[str, int] would store tuples with a str as key and int as value.
+    """
+
+    def __init__(self) -> None:
+        self._store: List[Tuple[T, V]] = []
+
+    def __setitem__(self, key: T, value: V) -> None:
+        """Add a new tuple if it does not exist already."""
         if (key, value) not in self._store:
             self._store.append((key, value))
 
-    def __getitem__(self, key: str) -> str:
-        for node in self._store:
-            if node[0] == key:
-                return node[1]
+    def __getitem__(self, key: T) -> V:
+        """Retrieve the value corresponding to the given key.
+
+        If multiple tuples have the same key, the value from the first encountered tuple is
+        returned.
+        """
+        for k, v in self._store:
+            if k == key:
+                return v
         raise KeyError(f"Node {key} not found")
 
-    def __contains__(self, item: str) -> bool:
-        return any(key == item for key, _ in self._store)
+    def __contains__(self, item: T) -> bool:
+        """Check if any tuple in the store has the given key."""
+        return any(k == item for k, _ in self._store)
 
     def __len__(self) -> int:
+        """Return the number of unique tuples in the store."""
         return len(self._store)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[Tuple[T, V]]:
+        """Iterate over the stored tuples."""
         return iter(self._store)
 
     def __repr__(self) -> str:
-        return f"IntermediateNodeStore({self._store})"
+        return f"SimpleTupleStore({self._store})"
 
-    def add(self, node: tuple[str, str]):
-        """Add a node to the internal storage.
+    def add(self, node: Tuple[T, V]) -> None:
+        """Add a node (tuple) to the internal storage if it doesn't already exist.
 
         Args:
-            node (tuple[str, str]): A tuple containing two strings representing the node to be added.
+            node (Tuple[T, V]): A tuple containing a key of type T and a value of type V.
 
         """
         if node not in self._store:
             self._store.append(node)
 
-    def get(self, target: str) -> list[str]:
-        """Retrieve a list of values associated with a specific target from the internal store.
+    def get(self, target: T) -> List[V]:
+        """Retrieve all values associated with a specific target key.
 
         Args:
-            target (str): The target key to search for in the internal store.
+            target (T): The target key to search for in the internal store.
 
         Returns:
-            list[str]: A list of values corresponding to the given target key.
+            List[V]: A list of values corresponding to the given target key.
 
         """
-        return [node[1] for node in self._store if node[0] == target]
+        return [v for k, v in self._store if k == target]
 
 
 def validate_chains(
@@ -156,7 +173,7 @@ def filter_intermediate_nodes(
     # first identify the intermediate nodes
     intermediate_nodes, validated_chains = identify_intermediate_steps(validated_chains)
     assert isinstance(
-        intermediate_nodes, IntermediateNodeStore
+        intermediate_nodes, SimpleTupleStore
     ), "intermediate_nodes should be an instance of IntermediateNodeStore"
 
     # now we need to update the remaining chains with the intermediate nodes
@@ -190,7 +207,7 @@ def filter_intermediate_nodes(
     return new_chains
 
 
-def find_roots(node: str, intermediate_nodes: IntermediateNodeStore) -> List[str]:
+def find_roots(node: str, intermediate_nodes: SimpleTupleStore) -> List[str]:
     """Find the root nodes in a directed graph starting from a given node.
 
     This function recursively traverses a graph represented by an intermediate node store
@@ -219,7 +236,7 @@ def find_roots(node: str, intermediate_nodes: IntermediateNodeStore) -> List[str
 
 def identify_intermediate_steps(
     chains: Sequence[Sequence[NodeProtocol]] | Sequence[NodeProtocol] | NodeProtocol,
-) -> Tuple[IntermediateNodeStore, List[List[NodeProtocol]]]:
+) -> Tuple[SimpleTupleStore[str, str], List[List[NodeProtocol]]]:
     """Identify and extract intermediate steps from a sequence of chains of nodes.
 
     Args:
@@ -227,14 +244,14 @@ def identify_intermediate_steps(
             A sequence of chains, where each chain is a sequence of nodes, or a single node.
 
     Returns:
-        Tuple[IntermediateNodeStore, List[List[NodeProtocol]]]: A tuple containing:
-            - An `IntermediateNodeStore` instance containing the intermediate nodes.
+        Tuple[SimpleTupleStore, List[List[NodeProtocol]]]: A tuple containing:
+            - An `SimpleTupleStore` instance containing the intermediate nodes.
             - A list of lists of `NodeProtocol` instances representing the validated chains.
 
     Notes:
         - The function validates the input chains before processing.
         - Nodes are checked for their type using the `check_type` function, which defaults to checking for "TABLE" type.
-        - Intermediate nodes are removed from the chains and stored in the `IntermediateNodeStore`.
+        - Intermediate nodes are removed from the chains and stored in the `SimpleTupleStore`.
 
     """
     validated_chains = validate_chains(chains)
@@ -250,7 +267,7 @@ def identify_intermediate_steps(
             return False
         return _type != check
 
-    intermediate_nodes = IntermediateNodeStore()
+    intermediate_nodes = SimpleTupleStore[str, str]()
 
     for chain in list(validated_chains):
         for step in list(chain):
