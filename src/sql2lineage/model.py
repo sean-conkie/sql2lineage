@@ -3,7 +3,7 @@
 # pylint: disable=no-member
 
 import re
-from typing import Dict, Optional, Set, Tuple, cast
+from typing import Dict, Optional, Set
 
 from pydantic import (
     BaseModel,
@@ -16,22 +16,40 @@ from pydantic.config import ConfigDict
 from sqlglot import Expression
 from sqlglot.expressions import Alias, Column, Star
 
-from sql2lineage.types.model import TableType
+from sql2lineage.types.model import Edge, TableType
 from sql2lineage.utils import SimpleTupleStore
 
 
-class SourceTable(BaseModel):
+class DataTable(BaseModel):
+    """Table information."""
+
+    name: str = Field(..., description="The name of the table.")
+    type: TableType = Field(
+        "TABLE",
+        description="The type of the table (e.g., 'TABLE', 'SUBQUERY', 'CTE').",
+    )
+
+    def __hash__(self):
+        return hash((self.name, self.type))
+
+    def __str__(self) -> str:
+        """Get the string representation of the table."""
+        return self.name
+
+    @property
+    def to_str(self) -> str:
+        """Get the column as a string."""
+        return str(self)
+
+
+class TableLineage(BaseModel):
     """Source table information."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    target: str = Field(..., description="The output table of the source.")
-    source: str = Field(..., description="The source table of the expression.")
+    target: DataTable = Field(..., description="The output table of the source.")
+    source: DataTable = Field(..., description="The source table of the expression.")
     alias: Optional[str] = Field(None, description="The alias of the source table.")
-    type: TableType = Field(
-        "TABLE",
-        description="The type of the source table (e.g., 'TABLE', 'SUBQUERY', 'CTE').",
-    )
 
     def __hash__(self):
         return hash((self.target, self.source, self.alias))
@@ -42,22 +60,65 @@ class SourceTable(BaseModel):
         """Get the node type of the source table."""
         return "TABLE"
 
+    @computed_field
+    @property
+    def source_type(self) -> str:
+        """Get the source type of the table lineage."""
+        return self.source.type
+
+    @computed_field
+    @property
+    def target_type(self) -> str:
+        """Get the table type of the source table."""
+        return self.target.type
+
+    @property
+    def as_edge(self):
+        """Get the column lineage as an edge."""
+        attrs = self.model_dump(
+            exclude_unset=True, exclude_none=True, exclude={"target", "source"}
+        )
+        attrs["source"] = self.source.to_str
+        attrs["target"] = self.target.to_str
+        return Edge.model_validate(attrs)
+
+
+class DataColumn(BaseModel):
+    """Column information."""
+
+    table: Optional[DataTable] = Field(
+        None, description="The table to which the column belongs."
+    )
+    name: str = Field(..., description="The name of the column.")
+
+    def __hash__(self):
+        return hash((self.table, self.name))
+
+    def __str__(self) -> str:
+        """Get the string representation of the column."""
+        parts = []
+        if self.table:
+            parts.append(self.table.name)
+        parts.append(self.name)
+        return ".".join(parts)
+
+    @property
+    def to_str(self) -> str:
+        """Get the alias or name of the column."""
+        return str(self)
+
 
 class ColumnLineage(BaseModel):
     """Column lineage information."""
 
-    target: str = Field(..., description="The ouput column name.")
-    source: str = Field(..., description="The source column name.")
+    target: DataColumn = Field(..., description="The ouput column name.")
+    source: DataColumn = Field(..., description="The source column name.")
     action: Optional[str] = Field(
         None, description="The action performed on the column."
     )
-    table_type: TableType = Field(
-        "TABLE",
-        description="The type of the source table (e.g., 'TABLE', 'SUBQUERY', 'CTE').",
-    )
 
     def __hash__(self):
-        return hash((self.target, self.source, self.action, self.table_type))
+        return hash((self.target, self.source, self.action))
 
     @computed_field
     @property
@@ -65,17 +126,41 @@ class ColumnLineage(BaseModel):
         """Get the node type of the column lineage."""
         return "COLUMN"
 
+    @computed_field
+    @property
+    def source_type(self) -> Optional[str]:
+        """Get the source type of the table lineage."""
+        if self.source.table:
+            return self.source.table.type
+
+    @computed_field
+    @property
+    def target_type(self) -> Optional[str]:
+        """Get the table type of the source table."""
+        if self.target.table:
+            return self.target.table.type
+
+    @property
+    def as_edge(self):
+        """Get the column lineage as an edge."""
+        attrs = self.model_dump(
+            exclude_unset=True, exclude_none=True, exclude={"target", "source"}
+        )
+        attrs["source"] = self.source.to_str
+        attrs["target"] = self.target.to_str
+        return Edge.model_validate(attrs)
+
 
 class ParsedExpression(BaseModel):
     """Parsed expression information."""
 
-    target: str = Field(..., description="The output table of the expression.")
+    target: DataTable = Field(..., description="The output table of the expression.")
 
     columns: set[ColumnLineage] = Field(
         default_factory=set, description="The column lineage information."
     )
 
-    tables: Set[SourceTable] = Field(
+    tables: Set[TableLineage] = Field(
         default_factory=set, description="The source tables of the expression."
     )
 
@@ -113,44 +198,8 @@ class ParsedExpression(BaseModel):
         """
         return {
             "target": self.target,
-            "columns": sorted(
-                [
-                    {
-                        "target": col.target,
-                        "source": col.source,
-                        "action": col.action,
-                        "node_type": col.node_type,
-                        "table_type": col.table_type,
-                    }
-                    for col in self.columns
-                ],
-                key=lambda entry: (
-                    entry["target"],
-                    entry["source"],
-                    entry["action"],
-                    entry["node_type"],
-                    entry["table_type"],
-                ),
-            ),
-            "tables": sorted(
-                [
-                    {
-                        "target": src.target,
-                        "source": src.source,
-                        "alias": src.alias,
-                        "node_type": src.node_type,
-                        "type": src.type,
-                    }
-                    for src in self.tables
-                ],
-                key=lambda entry: (
-                    entry["target"],
-                    entry["source"],
-                    entry["alias"],
-                    entry["node_type"],
-                    entry["type"],
-                ),
-            ),
+            "columns": [col.model_dump() for col in self.columns],
+            "tables": [src.model_dump() for src in self.tables],
             "subqueries": {
                 key: value.serialise_to_dict() for key, value in self.subqueries.items()
             },
@@ -160,110 +209,80 @@ class ParsedExpression(BaseModel):
     def _get_source_column(
         self,
         column: Column,
-        source_table: Optional[str],
-        table_store: Optional[SimpleTupleStore[str, TableType]] = None,
-    ) -> Tuple[Optional[str], Optional[TableType]]:
-        """Construct the fully qualified name of a source column.
-
-        Args:
-            source_tables (Set[SourceTable]): A set of source tables, where each entry contains
-                information about the source table, its alias, and other metadata.
-            source_table (Optional[str]): The name of the source table, if available.
-            column (Column): The column object containing details about the column, such as its
-                name, table, and parts.
-            table_store (Optional[SimpleTupleStore[str, TableType]]): A set of tuples representing the
-                source tables and their types. Each tuple contains the table name and its type.
-
-        Returns:
-            str: The fully qualified name of the source column in the format "table.column" or
-            "source_table.column", depending on the provided inputs.
-
-        """
-        source_column = None
-        source_type = None
+        source_table: Optional[DataTable],
+        table_store: SimpleTupleStore[str, DataTable],
+    ) -> DataColumn:
+        _source_column = None
+        _source_table = source_table
         if column.table:
-            for _source_table in self.tables:
-                if column.table == _source_table.alias:
-                    return f"{_source_table.source}.{column.name}", _source_table.type
+            for tbl in self.tables:
+                if column.table == tbl.alias:
+                    _source_column = column.name
+                    _source_table = tbl.source
+                    break
 
             # check subqueries
-            if source_column is None:
+            if _source_column is None:
                 subquery = self.subqueries.get(column.table)
                 if subquery:
                     # does the column exist in the subquery?
                     for col in subquery.columns:
-                        if col.target.split(".")[-1] == column.name:
-                            return col.source, "SUBQUERY"
+                        if col.target.name == column.name:
+                            # return col.source, "SUBQUERY"
+                            _source_column = col.target.name
+                            _source_table = subquery.target
+                            break
 
-        elif len(column.parts) == 1 and source_table:
-            source_column = f"{source_table}.{column.parts[0].name}"
+        elif column.parts and source_table:
+            joined_parts = ".".join([identifier.name for identifier in column.parts])
+            _source_column = joined_parts.replace(source_table.name, "")
+        elif column.parts:
+            _source_column = column.parts[-1].name
+            _table = ".".join([identifier.name for identifier in column.parts[:-1]])
+            _source_table = table_store.get(_table)
 
-        if source_column is None and column.parts:
-            source_column = ".".join([identifier.name for identifier in column.parts])
-            source_type = "TABLE"
-        elif source_column and table_store:
-            # try and find the column in the source tables
-            parts = source_column.split(".")
-            col_table = ".".join(parts[:-1])
-            source_type = table_store.get(col_table, "TABLE")
-            source_type = cast(TableType, source_type)
-        else:
-            source_type = "TABLE"
-
-        return source_column, source_type
+        return DataColumn(name=_source_column or "", table=_source_table)
 
     def update_column_lineage(
         self,
         expression: Expression,
-        source: Optional[str] = None,
-        target: Optional[str] = None,
-        table_store: Optional[SimpleTupleStore[str, TableType]] = None,
+        source: DataTable,
+        target: DataTable,
+        table_store: SimpleTupleStore[str, DataTable],
     ):
         """
         Update the column lineage information based on the provided SQL expression.
 
-        This method processes the given SQL expression to extract column lineage details,
-        including source columns, target columns, and the type of transformation or action
-        (e.g., COPY or TRANSFORM). It supports handling column aliases, transformations,
-        and wildcard column selections (e.g., `SELECT *`).
+        This method analyzes the given SQL expression and updates the lineage of columns
+        between the source and target tables. It handles different types of SQL constructs
+        such as column references, aliases, and wildcard selections (e.g., `*`).
 
         Args:
             expression (Expression): The SQL expression to analyze for column lineage.
-            source (Optional[str]): The source table or alias name. Defaults to None.
-            target (Optional[str]): The target table or alias name. Defaults to None.
-            table_store (Optional[Set[Tuple[str, TableType]]]): A set of tuples representing
-                the source tables and their types. Each tuple contains the table name and its type.
-                This is used to determine the source column's type. Defaults to None.
+            source (DataTable): The source table from which columns originate.
+            target (DataTable): The target table to which columns are mapped.
+            table_store (SimpleTupleStore[str, DataTable]): A store containing mappings
+                of table names to DataTable objects.
 
         Returns:
-            None: The method updates the `self.columns` attribute with column lineage
-            information and does not return any value.
+            None
 
         """  # noqa: D212
         if not hasattr(expression, "selects"):
             return
 
-        if target is None:
-            target = self.target
-
-        c_target = []
-        if target:
-            c_target.append(target)
-
         for select in expression.selects:  # type: ignore
 
             if isinstance(select, Column):
 
-                source_column, table_type = self._get_source_column(
-                    select, source, table_store
-                )
+                source_column = self._get_source_column(select, source, table_store)
+                target_column = DataColumn(name=select.alias_or_name, table=target)
 
                 self.columns.add(
                     ColumnLineage(
-                        target=".".join(c_target + [select.alias_or_name]),
-                        source=source_column or "",
+                        target=target_column,
+                        source=source_column,
                         action="COPY",
-                        table_type=table_type or "TABLE",
                     )
                 )
 
@@ -271,22 +290,23 @@ class ParsedExpression(BaseModel):
             elif isinstance(select, Alias):
                 if isinstance(select.this, Column):
                     # alias is a column
-                    source_column, table_type = self._get_source_column(
+                    source_column = self._get_source_column(
                         select.this, source, table_store
                     )
+                    target_column = DataColumn(name=select.alias_or_name, table=target)
+
                     self.columns.add(
                         ColumnLineage(
-                            target=".".join(c_target + [select.alias_or_name]),
-                            source=source_column or "",
+                            target=target_column,
+                            source=source_column,
                             action="COPY",
-                            table_type=table_type or "TABLE",
                         )
                     )
 
                 else:
 
                     for column in select.find_all(Column):
-                        source_column, table_type = self._get_source_column(
+                        source_column = self._get_source_column(
                             column, source, table_store
                         )
 
@@ -296,28 +316,36 @@ class ParsedExpression(BaseModel):
                         sql = pattern.sub("", select.sql())
                         action = "TRANSFORM" if sql != column.sql() else "COPY"
 
+                        target_column = DataColumn(
+                            name=select.alias_or_name, table=target
+                        )
+
                         self.columns.add(
                             ColumnLineage(
-                                target=".".join(c_target + [select.alias_or_name]),
-                                source=source_column or "",
+                                target=target_column,
+                                source=source_column,
                                 action=action,
-                                table_type=table_type or "TABLE",
                             )
                         )
 
             elif expression.find(Star):
+                # fund all columns in the source table(s)
                 for table in self.tables:
-                    if table.target == target:
-                        for col in list(self.columns):
-                            column_target = ".".join(col.target.split(".")[:-1])
-                            column_column = col.target.split(".")[-1]
-                            if column_target == table.source:
+                    if table.target.name == target.name:
+                        for column in list(self.columns):
+                            if (
+                                column.target.table
+                                and column.target.table.name == table.source.name
+                            ):
+                                target_column = DataColumn(
+                                    name=column.target.name, table=target
+                                )
+
                                 self.columns.add(
                                     ColumnLineage(
-                                        target=".".join([target, column_column]),
-                                        source=f"{table.source}.{column_column}",
+                                        target=target_column,
+                                        source=column.target,
                                         action="COPY",
-                                        table_type=table.type,
                                     )
                                 )
 
@@ -331,7 +359,7 @@ class ParsedResult(BaseModel):
     _columns: Set[ColumnLineage] = PrivateAttr(
         default_factory=set,
     )
-    _tables: Set[SourceTable] = PrivateAttr(
+    _tables: Set[TableLineage] = PrivateAttr(
         default_factory=set,
     )
 
@@ -349,7 +377,7 @@ class ParsedResult(BaseModel):
 
     @computed_field
     @property
-    def tables(self) -> Set[SourceTable]:
+    def tables(self) -> Set[TableLineage]:
         """List of source tables."""
         return self._tables
 
@@ -391,44 +419,8 @@ class ParsedResult(BaseModel):
             "expressions": [
                 expression.serialise_to_dict() for expression in self._expressions
             ],
-            "columns": sorted(
-                [
-                    {
-                        "target": col.target,
-                        "source": col.source,
-                        "action": col.action,
-                        "node_type": col.node_type,
-                        "table_type": col.table_type,
-                    }
-                    for col in self._columns
-                ],
-                key=lambda entry: (
-                    entry["target"],
-                    entry["source"],
-                    entry["action"],
-                    entry["node_type"],
-                    entry["table_type"],
-                ),
-            ),
-            "tables": sorted(
-                [
-                    {
-                        "target": src.target,
-                        "source": src.source,
-                        "alias": src.alias,
-                        "node_type": src.node_type,
-                        "type": src.type,
-                    }
-                    for src in self._tables
-                ],
-                key=lambda entry: (
-                    entry["target"],
-                    entry["source"],
-                    entry["alias"],
-                    entry["node_type"],
-                    entry["type"],
-                ),
-            ),
+            "columns": [col.model_dump() for col in self._columns],
+            "tables": [src.model_dump() for src in self._tables],
         }
 
 
