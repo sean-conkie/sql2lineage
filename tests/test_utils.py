@@ -1,6 +1,12 @@
+from typing import Optional
+
 import pytest
 
-from sql2lineage.utils import IntermediateNodeStore, validate_chains
+from sql2lineage.utils import (
+    IntermediateNodeStore,
+    filter_intermediate_nodes,
+    validate_chains,
+)
 
 
 class TestIntermediateNodeStore:
@@ -44,24 +50,51 @@ class TestIntermediateNodeStore:
         # __getitem__ should return the value from the first occurrence.
         assert store["node_dup"] == "first_value"
 
+    def test_len(self):
+        """Test that __len__ returns the correct number of items."""
+        store = IntermediateNodeStore()
+        store["node1"] = "value1"
+        store.add(("node2", "value2"))
+        assert len(store) == 2
+
+    def test_iter(self):
+        """Test that __iter__ returns an iterator over the store."""
+        store = IntermediateNodeStore()
+        store["node1"] = "value1"
+        store.add(("node2", "value2"))
+        keys = [key for key, _ in store]
+        assert keys == ["node1", "node2"]
+
+    def test_repr(self):
+        """Test that __repr__ returns a string representation of the store."""
+        store = IntermediateNodeStore()
+        store["node1"] = "value1"
+        store.add(("node2", "value2"))
+        assert (
+            repr(store)
+            == "IntermediateNodeStore([('node1', 'value1'), ('node2', 'value2')])"
+        )
+
+
+class DummyNode:
+    """Dummy node class for testing purposes."""
+
+    def __init__(self, source: str, target: str, type: Optional[str] = "TABLE"):
+        self.source = source
+        self.target = target
+        self.type = type
+
 
 class TestValidateChains:
     """Test validate_chains function."""
-
-    class DummyNode:
-        """Dummy node class for testing purposes."""
-
-        def __init__(self, source: str, target: str):
-            self.source = source
-            self.target = target
 
     @pytest.fixture(scope="class")
     def nodes(self):
         """Create some dummy nodes for testing."""
         return [
-            self.DummyNode("A", "B"),
-            self.DummyNode("B", "C"),
-            self.DummyNode("C", "D"),
+            DummyNode("A", "B"),
+            DummyNode("B", "C"),
+            DummyNode("C", "D"),
         ]
 
     def test_single_node(self, nodes):
@@ -108,3 +141,23 @@ class TestValidateChains:
         """Test that invalid input raises a TypeError."""
         with pytest.raises(ValueError):
             validate_chains(input)
+
+
+class TestFilterIntermediateNodes:
+    """Test filter_intermediate_nodes function."""
+
+    def test_filter_intermediate_nodes(self):
+        """Test that filter_intermediate_nodes correctly filters out intermediate nodes."""
+        nodes = [
+            DummyNode("A", "B"),
+            DummyNode("B", "C", "INTERMEDIATE"),
+            DummyNode("C", "D", "INTERMEDIATE"),
+            DummyNode("D", "E"),
+        ]
+        result = filter_intermediate_nodes(nodes)
+        # Only A and E should remain
+        assert result[0] == [
+            nodes[0],
+            nodes[-1],
+        ], "Only A and E should remain after filtering"
+        assert len(result[0]) == 2, "Only two nodes should remain after filtering"

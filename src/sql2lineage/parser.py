@@ -190,11 +190,17 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
                 source = join.this.find(Column)
                 assert source, f"Unable to find unnest table source {join}"
                 source_table = self._join_parts(source.parts)
+                alias = (
+                    join.this.alias_column_names[0]
+                    if len(join.this.alias_column_names) > 0
+                    else join.this.alias_or_name
+                )
+
                 unnests.add(
                     SourceTable(
                         target=parsed_expression.target,
                         source=source_table,
-                        alias=join.this.alias_or_name,
+                        alias=alias,
                         type="UNNEST",
                     ),
                 )
@@ -212,6 +218,7 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
 
         # find the source tables for the main query
         source_table = None
+        source_table_type = None
         source = self._extract_source(expression)
         if source is None:
             raise sqlglot.errors.ParseError(f"Unable to find table source {expression}")
@@ -222,12 +229,13 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
 
         elif isinstance(source, Table):
             source_table = self._join_parts(source.parts)
+            source_table_type = "TABLE"
             parsed_expression.tables.add(
                 SourceTable(
                     target=parsed_expression.target,
                     source=source_table,
                     alias=source.alias_or_name,
-                    type="TABLE",
+                    type=source_table_type,
                 ),
             )
         elif isinstance(source, Subquery):
@@ -255,11 +263,14 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
                 for table in parsed_expression.tables:
                     if alias == table.alias:
                         unnest.source = table.source
+                        unnest.type = table.type
                         break
 
             else:
                 # use the default source
                 unnest.source = source_table
+                unnest.type = source_table_type or "TABLE"
+
             parsed_expression.tables.add(unnest)
 
         # find the columns for the main query

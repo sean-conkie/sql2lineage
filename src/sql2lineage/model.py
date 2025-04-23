@@ -3,7 +3,7 @@
 # pylint: disable=no-member
 
 import re
-from typing import Dict, Literal, Optional, Set, TypeAlias
+from typing import Dict, Optional, Set, Tuple
 
 from pydantic import (
     BaseModel,
@@ -16,7 +16,7 @@ from pydantic.config import ConfigDict
 from sqlglot import Expression
 from sqlglot.expressions import Alias, Column, Star
 
-TableType: TypeAlias = Literal["TABLE", "SUBQUERY", "CTE", "UNNEST"]
+from sql2lineage.types.model import TableType
 
 
 class SourceTable(BaseModel):
@@ -35,19 +35,34 @@ class SourceTable(BaseModel):
     def __hash__(self):
         return hash((self.target, self.source, self.alias))
 
+    @computed_field
+    @property
+    def node_type(self) -> str:
+        """Get the node type of the source table."""
+        return "TABLE"
+
 
 class ColumnLineage(BaseModel):
     """Column lineage information."""
 
-    target: Optional[str] = Field(None, description="The output table of the column.")
-    column: Optional[str] = Field(None, description="The column name.")
-    source: Optional[str] = Field(None, description="The source column name.")
+    target: str = Field(..., description="The ouput column name.")
+    source: str = Field(..., description="The source column name.")
     action: Optional[str] = Field(
         None, description="The action performed on the column."
     )
+    table_type: TableType = Field(
+        "TABLE",
+        description="The type of the source table (e.g., 'TABLE', 'SUBQUERY', 'CTE').",
+    )
 
     def __hash__(self):
-        return hash((self.target, self.column, self.source, self.action))
+        return hash((self.target, self.source, self.action, self.table_type))
+
+    @computed_field
+    @property
+    def node_type(self) -> str:
+        """Get the node type of the column lineage."""
+        return "COLUMN"
 
 
 class ParsedExpression(BaseModel):
@@ -101,17 +116,19 @@ class ParsedExpression(BaseModel):
                 [
                     {
                         "target": col.target,
-                        "column": col.column,
                         "source": col.source,
                         "action": col.action,
+                        "node_type": col.node_type,
+                        "table_type": col.table_type,
                     }
                     for col in self.columns
                 ],
                 key=lambda entry: (
                     entry["target"],
-                    entry["column"],
                     entry["source"],
                     entry["action"],
+                    entry["node_type"],
+                    entry["table_type"],
                 ),
             ),
             "tables": sorted(
@@ -120,7 +137,8 @@ class ParsedExpression(BaseModel):
                         "target": src.target,
                         "source": src.source,
                         "alias": src.alias,
-                        "table_type": src.type,
+                        "node_type": src.node_type,
+                        "type": src.type,
                     }
                     for src in self.tables
                 ],
@@ -128,6 +146,8 @@ class ParsedExpression(BaseModel):
                     entry["target"],
                     entry["source"],
                     entry["alias"],
+                    entry["node_type"],
+                    entry["type"],
                 ),
             ),
             "subqueries": {
@@ -140,7 +160,7 @@ class ParsedExpression(BaseModel):
         self,
         column: Column,
         source_table: Optional[str],
-    ) -> str:
+    ) -> Tuple[Optional[str], Optional[TableType]]:
         """Construct the fully qualified name of a source column.
 
         Args:
@@ -161,8 +181,7 @@ class ParsedExpression(BaseModel):
         elif column.table:
             for _source_table in self.tables:
                 if column.table == _source_table.alias:
-                    source_column = f"{_source_table.source}.{column.name}"
-                    break
+                    return f"{_source_table.source}.{column.name}", _source_table.type
 
             # check subqueries
             if source_column is None:
@@ -170,14 +189,13 @@ class ParsedExpression(BaseModel):
                 if subquery:
                     # does the column exist in the subquery?
                     for col in subquery.columns:
-                        if col.column == column.name:
-                            source_column = col.source
-                            break
+                        if col.target.split(".")[-1] == column.name:
+                            return col.source, "SUBQUERY"
 
         if source_column is None:
             source_column = ".".join([identifier.name for identifier in column.parts])
 
-        return source_column
+        return source_column, "TABLE"
 
     def update_column_lineage(
         self,
@@ -187,30 +205,19 @@ class ParsedExpression(BaseModel):
     ):
         """Update the column lineage information based on the provided SQL expression.
 
-        This method analyzes the given SQL expression to determine the lineage of columns,
-        including their source tables, transformations, and actions (e.g., COPY or TRANSFORM).
-        It updates the `column_lineage` attribute with the derived lineage information.
+        This method processes the given SQL expression to extract column lineage details,
+        including source columns, target columns, and the type of transformation or action
+        (e.g., COPY or TRANSFORM). It supports handling column aliases, transformations,
+        and wildcard column selections (e.g., `SELECT *`).
 
         Args:
-            expression (Expression): The SQL expression to analyze. It is expected to have
-                attributes like `selects` and may contain instances of `Column`, `Alias`, or `Star`.
-            source (Optional[str]): The name of the source table associated with the expression,
-                if applicable.
-            target (Optional[str]): The name of the target table associated with the expression,
-                if applicable.
+            expression (Expression): The SQL expression to analyze for column lineage.
+            source (Optional[str]): The source table or alias name. Defaults to None.
+            target (Optional[str]): The target table or alias name. Defaults to None.
 
-        Behavior:
-            - If the expression contains `Column` instances, it identifies the source column
-              and adds a lineage entry with the action "COPY".
-            - If the expression contains `Alias` instances, it determines whether the alias
-              represents a transformation or a direct copy and updates the lineage accordingly.
-            - If the expression contains a `Star` (wildcard), it maps all columns from the
-              source tables to the output table with the action "COPY".
-
-        Note:
-            - The method assumes the presence of helper methods like `_get_source_column` and
-              attributes like `self.column_lineage` and `self.output_table`.
-            - Regular expressions are used to identify transformations in alias SQL strings.
+        Returns:
+            None: The method updates the `self.columns` attribute with column lineage
+            information and does not return any value.
 
         """
         if not hasattr(expression, "selects"):
@@ -219,18 +226,22 @@ class ParsedExpression(BaseModel):
         if target is None:
             target = self.target
 
+        c_target = []
+        if target:
+            c_target.append(target)
+
         for select in expression.selects:  # type: ignore
 
             if isinstance(select, Column):
 
-                source_column = self._get_source_column(select, source)
+                source_column, table_type = self._get_source_column(select, source)
 
                 self.columns.add(
                     ColumnLineage(
-                        target=target,
-                        column=select.alias_or_name,
-                        source=source_column,
+                        target=".".join(c_target + [select.alias_or_name]),
+                        source=source_column or "",
                         action="COPY",
+                        table_type=table_type or "TABLE",
                     )
                 )
 
@@ -238,20 +249,24 @@ class ParsedExpression(BaseModel):
             elif isinstance(select, Alias):
                 if isinstance(select.this, Column):
                     # alias is a column
-                    source_column = self._get_source_column(select.this, source)
+                    source_column, table_type = self._get_source_column(
+                        select.this, source
+                    )
                     self.columns.add(
                         ColumnLineage(
-                            target=target,
-                            column=select.alias_or_name,
-                            source=source_column,
+                            target=".".join(c_target + [select.alias_or_name]),
+                            source=source_column or "",
                             action="COPY",
+                            table_type=table_type or "TABLE",
                         )
                     )
 
                 else:
 
                     for column in select.find_all(Column):
-                        source_column = self._get_source_column(column, source)
+                        source_column, table_type = self._get_source_column(
+                            column, source
+                        )
 
                         pattern = re.compile(
                             f"(?: as) {column.alias_or_name}", re.IGNORECASE
@@ -261,10 +276,10 @@ class ParsedExpression(BaseModel):
 
                         self.columns.add(
                             ColumnLineage(
-                                target=target,
-                                column=select.alias_or_name,
-                                source=source_column,
+                                target=".".join(c_target + [select.alias_or_name]),
+                                source=source_column or "",
                                 action=action,
+                                table_type=table_type or "TABLE",
                             )
                         )
 
@@ -272,13 +287,15 @@ class ParsedExpression(BaseModel):
                 for table in self.tables:
                     if table.target == target:
                         for col in list(self.columns):
-                            if col.target == table.source:
+                            column_target = ".".join(col.target.split(".")[:-1])
+                            column_column = col.target.split(".")[-1]
+                            if column_target == table.source:
                                 self.columns.add(
                                     ColumnLineage(
-                                        target=target,
-                                        column=col.column,
-                                        source=f"{table.source}.{col.column}",
+                                        target=".".join([target, column_column]),
+                                        source=f"{table.source}.{column_column}",
                                         action="COPY",
+                                        table_type=table.type,
                                     )
                                 )
 
@@ -356,17 +373,19 @@ class ParsedResult(BaseModel):
                 [
                     {
                         "target": col.target,
-                        "column": col.column,
                         "source": col.source,
                         "action": col.action,
+                        "node_type": col.node_type,
+                        "table_type": col.table_type,
                     }
                     for col in self._columns
                 ],
                 key=lambda entry: (
                     entry["target"],
-                    entry["column"],
                     entry["source"],
                     entry["action"],
+                    entry["node_type"],
+                    entry["table_type"],
                 ),
             ),
             "tables": sorted(
@@ -375,6 +394,8 @@ class ParsedResult(BaseModel):
                         "target": src.target,
                         "source": src.source,
                         "alias": src.alias,
+                        "node_type": src.node_type,
+                        "type": src.type,
                     }
                     for src in self._tables
                 ],
@@ -382,6 +403,8 @@ class ParsedResult(BaseModel):
                     entry["target"],
                     entry["source"],
                     entry["alias"],
+                    entry["node_type"],
+                    entry["type"],
                 ),
             ),
         }
@@ -394,4 +417,6 @@ class LineageResult(BaseModel):
 
     source: str = Field(..., description="The source of the lineage.")
     target: str = Field(..., description="The target of the lineage.")
-    type: Optional[str] = Field(None, description="The type of the (e.g., 'COLUMN').")
+    node_type: Optional[str] = Field(
+        None, description="The type of the node (e.g., 'COLUMN')."
+    )

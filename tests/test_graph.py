@@ -60,23 +60,29 @@ class TestLinageGraph:
         graph.add_column_edges(
             {
                 ColumnLineage(
-                    source="source_table",
-                    target="target_table",
-                    column="column_name",
+                    source="source_table.column_name",
+                    target="target_table.column_name",
                     action="COPY",
+                    table_type="TABLE",
                 ),
                 ColumnLineage(
-                    source="source_table2",
-                    target="target_table2",
-                    column="column_name2",
+                    source="source_table2.column_name2",
+                    target="target_table2.column_name2",
                     action="COPY",
+                    table_type="TABLE",
                 ),
             }
         )
 
         assert len(graph.graph.edges) == 2
-        assert ("source_table", "target_table.column_name") in graph.graph.edges
-        assert ("source_table2", "target_table2.column_name2") in graph.graph.edges
+        assert (
+            "source_table.column_name",
+            "target_table.column_name",
+        ) in graph.graph.edges
+        assert (
+            "source_table2.column_name2",
+            "target_table2.column_name2",
+        ) in graph.graph.edges
 
     def test_pretty_string(self):
         """Test pretty string."""
@@ -185,8 +191,9 @@ class TestLinageGraph:
                             {
                                 "source": "raw.orders.order_id",
                                 "target": "orders_with_tax.order_id",
-                                "type": "COLUMN",
+                                "node_type": "COLUMN",
                                 "action": "COPY",
+                                "table_type": "TABLE",
                             }
                         )
                     ]
@@ -202,24 +209,24 @@ class TestLinageGraph:
                             {
                                 "source": "raw.orders",
                                 "target": "orders_with_tax",
-                                "type": "TABLE",
-                                "table_type": "CTE",
+                                "node_type": "TABLE",
+                                "type": "CTE",
                             }
                         ),
                         LineageResult.model_validate(
                             {
                                 "source": "orders_with_tax",
                                 "target": "filtered_orders",
-                                "type": "TABLE",
-                                "table_type": "CTE",
+                                "node_type": "TABLE",
+                                "type": "CTE",
                             }
                         ),
                         LineageResult.model_validate(
                             {
                                 "source": "filtered_orders",
                                 "target": "big_orders",
+                                "node_type": "TABLE",
                                 "type": "TABLE",
-                                "table_type": "TABLE",
                             }
                         ),
                     ]
@@ -244,24 +251,27 @@ class TestLinageGraph:
                             {
                                 "source": "raw.orders.order_id",
                                 "target": "orders_with_tax.order_id",
-                                "type": "COLUMN",
+                                "node_type": "COLUMN",
                                 "action": "COPY",
+                                "table_type": "TABLE",
                             }
                         ),
                         LineageResult.model_validate(
                             {
                                 "source": "orders_with_tax.order_id",
                                 "target": "filtered_orders.order_id",
-                                "type": "COLUMN",
+                                "node_type": "COLUMN",
                                 "action": "COPY",
+                                "table_type": "TABLE",
                             }
                         ),
                         LineageResult.model_validate(
                             {
                                 "source": "filtered_orders.order_id",
                                 "target": "big_orders.order_id",
-                                "type": "COLUMN",
+                                "node_type": "COLUMN",
                                 "action": "COPY",
+                                "table_type": "TABLE",
                             }
                         ),
                     ]
@@ -277,24 +287,24 @@ class TestLinageGraph:
                             {
                                 "source": "raw.orders",
                                 "target": "orders_with_tax",
-                                "type": "TABLE",
-                                "table_type": "CTE",
+                                "node_type": "TABLE",
+                                "type": "CTE",
                             }
                         ),
                         LineageResult.model_validate(
                             {
                                 "source": "orders_with_tax",
                                 "target": "filtered_orders",
-                                "type": "TABLE",
-                                "table_type": "CTE",
+                                "node_type": "TABLE",
+                                "type": "CTE",
                             }
                         ),
                         LineageResult.model_validate(
                             {
                                 "source": "filtered_orders",
                                 "target": "big_orders",
+                                "node_type": "TABLE",
                                 "type": "TABLE",
-                                "table_type": "TABLE",
                             }
                         ),
                     ]
@@ -319,16 +329,18 @@ class TestLinageGraph:
                             {
                                 "source": "raw.orders.order_id",
                                 "target": "orders_with_tax.order_id",
-                                "type": "COLUMN",
+                                "node_type": "COLUMN",
                                 "action": "COPY",
+                                "table_type": "TABLE",
                             }
                         ),
                         LineageResult.model_validate(
                             {
                                 "source": "orders_with_tax.order_id",
                                 "target": "filtered_orders.order_id",
-                                "type": "COLUMN",
+                                "node_type": "COLUMN",
                                 "action": "COPY",
+                                "table_type": "TABLE",
                             }
                         ),
                     ],
@@ -337,10 +349,11 @@ class TestLinageGraph:
                             {
                                 "source": "filtered_orders.order_id",
                                 "target": "big_orders.order_id",
-                                "type": "COLUMN",
+                                "node_type": "COLUMN",
                                 "action": "COPY",
+                                "table_type": "TABLE",
                             }
-                        ),
+                        )
                     ],
                 ],
                 id="COLUMN",
@@ -354,16 +367,16 @@ class TestLinageGraph:
                             {
                                 "source": "raw.orders",
                                 "target": "orders_with_tax",
-                                "type": "TABLE",
-                                "table_type": "CTE",
+                                "node_type": "TABLE",
+                                "type": "CTE",
                             }
                         ),
                         LineageResult.model_validate(
                             {
                                 "source": "orders_with_tax",
                                 "target": "filtered_orders",
-                                "type": "TABLE",
-                                "table_type": "CTE",
+                                "node_type": "TABLE",
+                                "type": "CTE",
                             }
                         ),
                     ],
@@ -372,8 +385,8 @@ class TestLinageGraph:
                             {
                                 "source": "filtered_orders",
                                 "target": "big_orders",
+                                "node_type": "TABLE",
                                 "type": "TABLE",
-                                "table_type": "TABLE",
                             }
                         ),
                     ],
@@ -406,7 +419,7 @@ class TestLinageGraph:
                         "source": "raw.orders",
                         "target": "big_orders",
                         "type": "TABLE",
-                        "table_type": "TABLE",
+                        "node_type": "TABLE",
                     }
                 )
             ]
@@ -427,8 +440,8 @@ class TestLinageGraph:
         )
         captured = capsys.readouterr()
         expected = """Neighbourhood:
-  ↳ {'source': 'raw.orders', 'target': 'orders_with_tax', 'type': 'TABLE', 'table_type': 'CTE'}
-  ↳ {'source': 'orders_with_tax', 'target': 'filtered_orders', 'type': 'TABLE', 'table_type': 'CTE'}
-  ↳ {'source': 'filtered_orders', 'target': 'big_orders', 'type': 'TABLE', 'table_type': 'TABLE'}"""
+  ↳ {'source': 'raw.orders', 'target': 'orders_with_tax', 'node_type': 'TABLE', 'type': 'CTE'}
+  ↳ {'source': 'orders_with_tax', 'target': 'filtered_orders', 'node_type': 'TABLE', 'type': 'CTE'}
+  ↳ {'source': 'filtered_orders', 'target': 'big_orders', 'node_type': 'TABLE', 'type': 'TABLE'}"""
 
         assert expected in captured.out

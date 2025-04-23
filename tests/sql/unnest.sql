@@ -6,5 +6,5 @@ SELECT
     ad.city,
     ad.state,
     ad.zip,
-    li.prouct
+    li.product
 FROM raw_orders AS src, UNNEST(src.address) AS ad, unnest(lines_items) AS li
