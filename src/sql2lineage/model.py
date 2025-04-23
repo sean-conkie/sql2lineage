@@ -3,7 +3,7 @@
 # pylint: disable=no-member
 
 import re
-from typing import Dict, Optional, Set, Tuple
+from typing import Dict, Optional, Set, Tuple, cast
 
 from pydantic import (
     BaseModel,
@@ -17,6 +17,7 @@ from sqlglot import Expression
 from sqlglot.expressions import Alias, Column, Star
 
 from sql2lineage.types.model import TableType
+from sql2lineage.utils import SimpleTupleStore
 
 
 class SourceTable(BaseModel):
@@ -160,6 +161,7 @@ class ParsedExpression(BaseModel):
         self,
         column: Column,
         source_table: Optional[str],
+        table_store: Optional[SimpleTupleStore[str, TableType]] = None,
     ) -> Tuple[Optional[str], Optional[TableType]]:
         """Construct the fully qualified name of a source column.
 
@@ -169,6 +171,8 @@ class ParsedExpression(BaseModel):
             source_table (Optional[str]): The name of the source table, if available.
             column (Column): The column object containing details about the column, such as its
                 name, table, and parts.
+            table_store (Optional[SimpleTupleStore[str, TableType]]): A set of tuples representing the
+                source tables and their types. Each tuple contains the table name and its type.
 
         Returns:
             str: The fully qualified name of the source column in the format "table.column" or
@@ -176,9 +180,8 @@ class ParsedExpression(BaseModel):
 
         """
         source_column = None
-        if len(column.parts) == 1 and source_table:
-            source_column = f"{source_table}.{column.parts[0].name}"
-        elif column.table:
+        source_type = None
+        if column.table:
             for _source_table in self.tables:
                 if column.table == _source_table.alias:
                     return f"{_source_table.source}.{column.name}", _source_table.type
@@ -192,18 +195,32 @@ class ParsedExpression(BaseModel):
                         if col.target.split(".")[-1] == column.name:
                             return col.source, "SUBQUERY"
 
-        if source_column is None:
-            source_column = ".".join([identifier.name for identifier in column.parts])
+        elif len(column.parts) == 1 and source_table:
+            source_column = f"{source_table}.{column.parts[0].name}"
 
-        return source_column, "TABLE"
+        if source_column is None and column.parts:
+            source_column = ".".join([identifier.name for identifier in column.parts])
+            source_type = "TABLE"
+        elif source_column and table_store:
+            # try and find the column in the source tables
+            parts = source_column.split(".")
+            col_table = ".".join(parts[:-1])
+            source_type = table_store.get(col_table, "TABLE")
+            source_type = cast(TableType, source_type)
+        else:
+            source_type = "TABLE"
+
+        return source_column, source_type
 
     def update_column_lineage(
         self,
         expression: Expression,
         source: Optional[str] = None,
         target: Optional[str] = None,
+        table_store: Optional[SimpleTupleStore[str, TableType]] = None,
     ):
-        """Update the column lineage information based on the provided SQL expression.
+        """
+        Update the column lineage information based on the provided SQL expression.
 
         This method processes the given SQL expression to extract column lineage details,
         including source columns, target columns, and the type of transformation or action
@@ -214,12 +231,15 @@ class ParsedExpression(BaseModel):
             expression (Expression): The SQL expression to analyze for column lineage.
             source (Optional[str]): The source table or alias name. Defaults to None.
             target (Optional[str]): The target table or alias name. Defaults to None.
+            table_store (Optional[Set[Tuple[str, TableType]]]): A set of tuples representing
+                the source tables and their types. Each tuple contains the table name and its type.
+                This is used to determine the source column's type. Defaults to None.
 
         Returns:
             None: The method updates the `self.columns` attribute with column lineage
             information and does not return any value.
 
-        """
+        """  # noqa: D212
         if not hasattr(expression, "selects"):
             return
 
@@ -234,7 +254,9 @@ class ParsedExpression(BaseModel):
 
             if isinstance(select, Column):
 
-                source_column, table_type = self._get_source_column(select, source)
+                source_column, table_type = self._get_source_column(
+                    select, source, table_store
+                )
 
                 self.columns.add(
                     ColumnLineage(
@@ -250,7 +272,7 @@ class ParsedExpression(BaseModel):
                 if isinstance(select.this, Column):
                     # alias is a column
                     source_column, table_type = self._get_source_column(
-                        select.this, source
+                        select.this, source, table_store
                     )
                     self.columns.add(
                         ColumnLineage(
@@ -265,7 +287,7 @@ class ParsedExpression(BaseModel):
 
                     for column in select.find_all(Column):
                         source_column, table_type = self._get_source_column(
-                            column, source
+                            column, source, table_store
                         )
 
                         pattern = re.compile(
