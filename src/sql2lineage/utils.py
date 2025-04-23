@@ -1,10 +1,21 @@
 """Utility functions for SQL lineage extraction."""
 
-from typing import Generic, Iterator, List, Sequence, Tuple, TypeVar, Union
+from typing import (
+    Generic,
+    Iterator,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    TypeVar,
+    Union,
+    overload,
+)
 
 from sql2lineage.types.utils import NodeProtocol
 
 # Define two type variables for the key and value.
+D = TypeVar("D")
 T = TypeVar("T")
 V = TypeVar("V")
 
@@ -60,7 +71,7 @@ class SimpleTupleStore(Generic[T, V]):
         if node not in self._store:
             self._store.append(node)
 
-    def get(self, target: T) -> List[V]:
+    def get_all(self, target: T) -> List[V]:
         """Retrieve all values associated with a specific target key.
 
         Args:
@@ -71,6 +82,29 @@ class SimpleTupleStore(Generic[T, V]):
 
         """
         return [v for k, v in self._store if k == target]
+
+    @overload
+    def get(self, target: T, default: D) -> V | D: ...
+
+    @overload
+    def get(self, target: T) -> V | None: ...
+
+    def get(self, target: T, default: Optional[D] = None) -> V | D | None:
+        """Retrieve the value associated with the given target key from the internal store.
+
+        Args:
+            target (T): The key to search for in the store.
+            default (Optional[D], optional): The default value to return if the key is not found. Defaults to None.
+
+        Returns:
+            V | D | None: The value associated with the target key if found, otherwise the default value or None.
+
+        """
+        for k, v in self._store:
+            if k == target:
+                return v
+
+        return default
 
 
 def validate_chains(
@@ -190,7 +224,7 @@ def filter_intermediate_nodes(
                     sl
                     for src in (
                         find_roots(s, intermediate_nodes)
-                        for s in intermediate_nodes.get(step.source)
+                        for s in intermediate_nodes.get_all(step.source)
                     )
                     for sl in src
                 ]
@@ -226,7 +260,8 @@ def find_roots(node: str, intermediate_nodes: SimpleTupleStore) -> List[str]:
         return [
             s
             for sublist in [
-                find_roots(s, intermediate_nodes) for s in intermediate_nodes.get(node)
+                find_roots(s, intermediate_nodes)
+                for s in intermediate_nodes.get_all(node)
             ]
             for s in sublist
         ]

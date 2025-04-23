@@ -75,6 +75,27 @@ class TestSimpleTupleStore:
             == "SimpleTupleStore([('node1', 'value1'), ('node2', 'value2')])"
         )
 
+    def test_get(self):
+        """Test that get() returns the correct value for existing and non-existing keys."""
+        store = SimpleTupleStore[str, str]()
+        store["node1"] = "value1"
+        assert store.get("node1") == "value1"
+        assert store.get("non_existing_node") is None
+
+    def test_get_with_default(self):
+        """Test that get() returns the default value for non-existing keys."""
+        store = SimpleTupleStore[str, str]()
+        store["node1"] = "value1"
+        assert store.get("node1", "default") == "value1"
+        assert store.get("non_existing_node", "default") == "default"
+
+    def test_get_all(self):
+        """Test that get_all() returns all items in the store."""
+        store = SimpleTupleStore[str, str]()
+        store["node1"] = "value1"
+        store.add(("node1", "value2"))
+        assert store.get_all("node1") == [("node1", "value1"), ("node1", "value2")]
+
 
 class DummyNode:
     """Dummy node class for testing purposes."""
