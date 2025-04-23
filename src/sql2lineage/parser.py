@@ -28,6 +28,8 @@ from sqlglot.expressions import (
 )
 
 from sql2lineage.model import ParsedExpression, ParsedResult, SourceTable
+from sql2lineage.types.model import TableType
+from sql2lineage.utils import SimpleTupleStore
 
 StrPath: TypeAlias = str | PathLike[str]
 
@@ -46,6 +48,7 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
 
         """
         self._dialect = dialect
+        self._table_store = SimpleTupleStore[str, TableType]()
 
     def _extract_target(self, expression: Expression, index: int) -> str:
         """Extract the target from the expression.
@@ -128,7 +131,7 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
 
         parsed_expression = ParsedExpression(
             target=self._extract_target(expression, index),
-            expression=expression.sql(pretty=True),
+            expression=expression.sql(pretty=True, dialect=self._dialect),
         )
 
         for cte in expression.find_all(CTE):
@@ -145,7 +148,7 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
                         target=cte_target,
                         source=source.source,
                         alias=source.alias,
-                        type="CTE",
+                        type=source.type,
                     )
                 )
 
@@ -158,7 +161,12 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
                 else:
                     source_table = None
 
-            parsed_expression.update_column_lineage(cte, source_table, cte_target)
+            if cte_target not in self._table_store:
+                self._table_store[cte_target] = "CTE"
+
+            parsed_expression.update_column_lineage(
+                cte, source_table, cte_target, self._table_store
+            )
 
         unnests = set()
 
@@ -206,14 +214,20 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
                 )
 
             else:
-                source_table = self._join_parts(join.this.parts)
-                parsed_expression.tables.add(
-                    SourceTable(
-                        target=parsed_expression.target,
-                        source=source_table,
-                        alias=join.alias_or_name,
-                        type="TABLE",
-                    ),
+                # source_table = self._join_parts(join.this.parts)
+                # parsed_expression.tables.add(
+                #     SourceTable(
+                #         target=parsed_expression.target,
+                #         source=source_table,
+                #         alias=join.alias_or_name,
+                #         type=self._table_store.get(source_table, "TABLE"),
+                #     ),
+                # )
+                self._add_table_to_expression(
+                    parsed_expression,
+                    join.this.parts,
+                    parsed_expression.target,
+                    join.alias_or_name,
                 )
 
         # find the source tables for the main query
@@ -228,15 +242,24 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
             pass
 
         elif isinstance(source, Table):
-            source_table = self._join_parts(source.parts)
-            source_table_type = "TABLE"
-            parsed_expression.tables.add(
-                SourceTable(
-                    target=parsed_expression.target,
-                    source=source_table,
-                    alias=source.alias_or_name,
-                    type=source_table_type,
-                ),
+            # source_table = self._join_parts(source.parts)
+            # source_table_type = "TABLE"
+            # if source_table not in self._table_store:
+            #     self._table_store[source_table] = source_table_type
+            # parsed_expression.tables.add(
+            #     SourceTable(
+            #         target=parsed_expression.target,
+            #         source=source_table,
+            #         alias=source.alias_or_name,
+            #         type=source_table_type,
+            #     ),
+            # )
+
+            self._add_table_to_expression(
+                parsed_expression,
+                source.parts,
+                parsed_expression.target,
+                source.alias_or_name,
             )
         elif isinstance(source, Subquery):
             # parse the subquery
@@ -274,9 +297,33 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
             parsed_expression.tables.add(unnest)
 
         # find the columns for the main query
-        parsed_expression.update_column_lineage(expression, source_table)
+        parsed_expression.update_column_lineage(
+            expression,
+            source_table,
+            target=parsed_expression.target,
+            table_store=self._table_store,
+        )
 
         return parsed_expression
+
+    def _add_table_to_expression(
+        self,
+        parsed_expression: ParsedExpression,
+        parts: List[Expression],
+        target: str,
+        alias: Optional[str] = None,
+    ):
+        source_table = self._join_parts(parts)
+        if source_table not in self._table_store:
+            self._table_store[source_table] = "TABLE"
+        parsed_expression.tables.add(
+            SourceTable(
+                target=target,
+                source=source_table,
+                alias=alias,
+                type=self._table_store.get(source_table, "TABLE"),
+            ),
+        )
 
     def extract_lineage(
         self,
