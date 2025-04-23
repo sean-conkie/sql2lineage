@@ -197,7 +197,7 @@ class ParsedExpression(BaseModel):
 
         """
         return {
-            "target": self.target,
+            "target": self.target.model_dump(),
             "columns": [col.model_dump() for col in self.columns],
             "tables": [src.model_dump() for src in self.tables],
             "subqueries": {
