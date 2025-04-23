@@ -94,7 +94,7 @@ class TestSimpleTupleStore:
         store = SimpleTupleStore[str, str]()
         store["node1"] = "value1"
         store.add(("node1", "value2"))
-        assert store.get_all("node1") == [("node1", "value1"), ("node1", "value2")]
+        assert store.get_all("node1") == ["value1", "value2"]
 
 
 class DummyNode:
