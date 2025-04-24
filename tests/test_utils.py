@@ -100,10 +100,21 @@ class TestSimpleTupleStore:
 class DummyNode:
     """Dummy node class for testing purposes."""
 
-    def __init__(self, source: str, target: str, type: Optional[str] = "TABLE"):
+    def __init__(
+        self,
+        source: str,
+        target: str,
+        source_type: Optional[str] = "TABLE",
+        target_type: Optional[str] = "TABLE",
+    ):
         self.source = source
         self.target = target
-        self.type = type
+        self.source_type = source_type
+        self.target_type = target_type
+
+    def __str__(self):
+        """Get the string representation of the node."""
+        return f"{self.source} -> {self.target}"
 
 
 class TestValidateChains:
@@ -167,18 +178,42 @@ class TestValidateChains:
 class TestFilterIntermediateNodes:
     """Test filter_intermediate_nodes function."""
 
-    def test_filter_intermediate_nodes(self):
+    @pytest.mark.parametrize(
+        "input, expected, error",
+        [
+            pytest.param(
+                [
+                    DummyNode("A", "B", "TABLE", "CTE"),
+                    DummyNode("B", "C", "CTE", "CTE"),
+                    DummyNode("C", "D", "CTE", "CTE"),
+                    DummyNode("D", "E", "CTE", "TABLE"),
+                ],
+                ["A -> E"],
+                "only A and E should remain after filtering",
+                id="intermediate_nodes",
+            ),
+            pytest.param(
+                [
+                    DummyNode("A", "B"),
+                    DummyNode("B", "C"),
+                    DummyNode("C", "D"),
+                    DummyNode("D", "E"),
+                ],
+                [
+                    "A -> B",
+                    "B -> C",
+                    "C -> D",
+                    "D -> E",
+                ],
+                "all nodes should remain after filtering",
+                id="no_intermediate_nodes",
+            ),
+        ],
+    )
+    def test_filter_intermediate_nodes(self, input, expected, error):
         """Test that filter_intermediate_nodes correctly filters out intermediate nodes."""
-        nodes = [
-            DummyNode("A", "B"),
-            DummyNode("B", "C", "INTERMEDIATE"),
-            DummyNode("C", "D", "INTERMEDIATE"),
-            DummyNode("D", "E"),
-        ]
-        result = filter_intermediate_nodes(nodes)
-        # Only A and E should remain
-        assert result[0] == [
-            nodes[0],
-            nodes[-1],
-        ], "Only A and E should remain after filtering"
-        assert len(result[0]) == 2, "Only two nodes should remain after filtering"
+        result = filter_intermediate_nodes(input)
+        assert len(result[0]) == len(expected), error
+        assert all(
+            str(n) in expected for node in result for n in node
+        ), f"Expected nodes: {expected}, but got: {[str(node) for node in result]}"

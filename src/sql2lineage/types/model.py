@@ -48,6 +48,10 @@ class LineageNode(BaseModel):
     def __hash__(self):
         return hash((self.source, self.target, self.node_type, self.source_type))
 
+    def __str__(self) -> str:
+        """Get the string representation of the node."""
+        return f"{self.source} -> {self.target}"
+
 
 class DataTable(BaseModel):
     """Table information."""

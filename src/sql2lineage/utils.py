@@ -223,6 +223,7 @@ def filter_intermediate_nodes(
                     (step.target_type or "TABLE") == "TABLE",
                 )
             ):
+                new_chain.add(step)
                 continue
 
             node_attrs = {"source_type": "TABLE", "target_type": "TABLE"}
