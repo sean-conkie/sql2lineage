@@ -5,6 +5,7 @@ from typing import Protocol, TypeAlias, runtime_checkable
 from sql2lineage.types.model import Edge, TableType
 
 
+@runtime_checkable
 class Stringable(Protocol):
     """Protocol for stringable objects."""
 

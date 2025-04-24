@@ -10,12 +10,9 @@ from networkx.exception import NetworkXError
 from pydantic import BaseModel
 
 from sql2lineage.model import (
-    ColumnLineage,
-    Edge,
     ParsedExpression,
-    TableLineage,
 )
-from sql2lineage.types.model import LineageNode
+from sql2lineage.types.model import ColumnLineage, Edge, LineageNode, TableLineage
 from sql2lineage.types.utils import NodeType
 from sql2lineage.utils import filter_intermediate_nodes
 

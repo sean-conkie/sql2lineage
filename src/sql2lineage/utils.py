@@ -1,5 +1,6 @@
 """Utility functions for SQL lineage extraction."""
 
+import itertools
 from typing import (
     Generic,
     Iterator,
@@ -12,15 +13,57 @@ from typing import (
     overload,
 )
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
-from sql2lineage.types.model import LineageNode
-from sql2lineage.types.utils import NodeType
+from sql2lineage.types.model import LineageNode, TableType
+from sql2lineage.types.utils import NodeType, Stringable
 
 # Define two type variables for the key and value.
 D = TypeVar("D")
 T = TypeVar("T")
 V = TypeVar("V")
+
+
+class NodeDataClass(BaseModel):
+    """A node in the lineage graph."""
+
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+
+    source_type: TableType
+    target_type: TableType
+    source: Optional[Stringable | List[Stringable]] = None
+    target: Optional[Stringable | List[Stringable]] = None
+
+    def __str__(self) -> str:
+        """Get the string representation of the node."""
+        return f"{self.source} -> {self.target}"
+
+    def to_nodes(self) -> List[LineageNode]:
+        """Convert the dataclass to a node."""
+        attrs = self.model_dump(
+            exclude_none=True,
+            exclude_unset=True,
+            exclude={"source", "target"},
+        )
+
+        src = self.source if isinstance(self.source, list) else [self.source]
+        tgt = self.target if isinstance(self.target, list) else [self.target]
+
+        # handle intermediate nodes that have multiple sources or targets
+        # if A has 3 sources and B has 2 targets, we need to create 3 * 2 = 6 nodes
+        nodes = []
+        src_trg = itertools.product(src, tgt)
+        for source, target in src_trg:
+            node_attrs = {
+                "source": source,
+                "target": target,
+                "source_type": self.source_type,
+                "target_type": self.target_type,
+            }
+            node_attrs.update(attrs)
+            nodes.append(LineageNode.model_validate(node_attrs))
+
+        return nodes
 
 
 class SimpleTupleStore(Generic[T, V]):
@@ -236,23 +279,19 @@ def filter_intermediate_nodes(
                     )
                 )
 
-            # check the target
-            if step.target_type == "TABLE":
-                # target is a table so let's copy it to the new node
-                node_attrs["target"] = step.target
-            else:
-                # target is not a table so let's find the root nodes for that chain
-                node_attrs["target"] = target_nodes[step.target]
+            new_node = NodeDataClass.model_validate(node_attrs)
+            new_node.target = (
+                step.target
+                if step.target_type == "TABLE"
+                else target_nodes[str(step.target)]
+            )
+            new_node.source = (
+                step.source
+                if step.source_type == "TABLE"
+                else source_nodes[str(step.source)]
+            )
+            new_chain.update(new_node.to_nodes())
 
-            # check the source
-            if step.source_type == "TABLE":
-                # source is a table so let's copy it to the new node
-                node_attrs["source"] = step.source
-            else:
-                # source is not a table so let's find the root nodes for that chain
-                node_attrs["source"] = source_nodes[step.source]
-
-            new_chain.add(LineageNode.model_validate(node_attrs))
         new_chains.add(frozenset(new_chain))
 
     return [list(chain) for chain in new_chains if len(chain) > 0]
