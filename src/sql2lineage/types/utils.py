@@ -2,7 +2,7 @@
 
 from typing import Protocol, TypeAlias, runtime_checkable
 
-from sql2lineage.types.model import Edge
+from sql2lineage.types.model import Edge, TableType
 
 
 class Stringable(Protocol):
@@ -29,7 +29,15 @@ class NodeProtocol(Protocol):
         self,
     ) -> Stringable: ...
 
+    @property
+    def source_type(  # noqa: D102 # pylint: disable=missing-function-docstring
+        self,
+    ) -> TableType: ...
 
+    @property
+    def target_type(  # noqa: D102 # pylint: disable=missing-function-docstring
+        self,
+    ) -> TableType: ...
 @runtime_checkable
 class NodeEdgeProtocol(NodeProtocol, Protocol):
     """Protocol for a node in the lineage graph that can be converted to an edge.

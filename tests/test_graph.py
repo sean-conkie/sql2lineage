@@ -9,7 +9,7 @@ from sql2lineage.model import (
     ColumnLineage,
     LineageResult,
     ParsedExpression,
-    SourceTable,
+    TableLineage,
 )
 from sql2lineage.parser import SQLLineageParser
 
@@ -35,13 +35,13 @@ class TestLinageGraph:
         graph = LineageGraph()
         graph.add_table_edges(
             {
-                SourceTable(
+                TableLineage(
                     source="source_table",
                     target="target_table",
                     alias="alias_name",
                     type="TABLE",
                 ),
-                SourceTable(
+                TableLineage(
                     source="source_table2",
                     target="target_table2",
                     alias="alias_name2",

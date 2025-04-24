@@ -12,7 +12,10 @@ from typing import (
     overload,
 )
 
-from sql2lineage.types.utils import NodeProtocol
+from pydantic import BaseModel
+
+from sql2lineage.types.model import LineageNode
+from sql2lineage.types.utils import NodeType
 
 # Define two type variables for the key and value.
 D = TypeVar("D")
@@ -27,8 +30,17 @@ class SimpleTupleStore(Generic[T, V]):
     For example, SimpleTupleStore[str, int] would store tuples with a str as key and int as value.
     """
 
-    def __init__(self) -> None:
-        self._store: List[Tuple[T, V]] = []
+    def __init__(self, value: Optional[List[Tuple[T, V]]] = None) -> None:
+        if value is None:
+            self._store: List[Tuple[T, V]] = []
+        elif isinstance(value, list) and all(
+            isinstance(item, tuple) and len(item) == 2 for item in value
+        ):
+            self._store = value
+        else:
+            raise ValueError(
+                "value must be a list of tuples, each containing exactly two elements."
+            )
 
     def __setitem__(self, key: T, value: V) -> None:
         """Add a new tuple if it does not exist already."""
@@ -108,69 +120,63 @@ class SimpleTupleStore(Generic[T, V]):
 
 
 def validate_chains(
-    chains: Union[
-        Sequence[Sequence[NodeProtocol]], Sequence[NodeProtocol], NodeProtocol
-    ],
-) -> List[List[NodeProtocol]]:
-    """Validate and normalise the input `chains` into a list of lists of `NodeProtocol` instances.
+    chains: Union[Sequence[Sequence[NodeType]], Sequence[NodeType], NodeType],
+) -> List[List[NodeType]]:
+    """Validate and normalise the input `chains` into a list of lists of `NodeType` instances.
 
     This function handles three cases:
-    1. If `chains` is a single `NodeProtocol` instance, it wraps it in a nested list.
-    2. If `chains` is a sequence of `NodeProtocol` instances, it wraps the sequence in a list.
-    3. If `chains` is a sequence of sequences of `NodeProtocol` instances, it validates and normalizes each sequence.
+    1. If `chains` is a single `NodeType` instance, it wraps it in a nested list.
+    2. If `chains` is a sequence of `NodeType` instances, it wraps the sequence in a list.
+    3. If `chains` is a sequence of sequences of `NodeType` instances, it validates and normalizes each sequence.
 
     Args:
-        chains (Union[Sequence[Sequence[NodeProtocol]], Sequence[NodeProtocol], NodeProtocol]):
+        chains (Union[Sequence[Sequence[NodeType]], Sequence[NodeType], NodeType]):
             The input to validate and normalize. It can be:
-            - A single `NodeProtocol` instance.
-            - A sequence of `NodeProtocol` instances.
-            - A sequence of sequences of `NodeProtocol` instances.
+            - A single `NodeType` instance.
+            - A sequence of `NodeType` instances.
+            - A sequence of sequences of `NodeType` instances.
 
     Returns:
-        List[List[NodeProtocol]]: A normalized list of lists of `NodeProtocol` instances.
+        List[List[NodeType]]: A normalized list of lists of `NodeType` instances.
 
     Raises:
-        ValueError: If `chains` is not a `NodeProtocol` or a sequence thereof, or if any element
-                    in the sequence does not conform to `NodeProtocol`.
+        ValueError: If `chains` is not a `NodeType` or a sequence thereof, or if any element
+                    in the sequence does not conform to `NodeType`.
 
     """
-    # Case 1: chains is a single NodeProtocol instance.
-    if isinstance(chains, NodeProtocol):
+    # Case 1: chains is a single NodeType instance.
+    if isinstance(chains, NodeType):
         return [[chains]]
 
     # At this point we expect chains to be a sequence.
     if not isinstance(chains, Sequence):
-        raise ValueError("chains must be a NodeProtocol or a sequence thereof.")
+        raise ValueError("chains must be a NodeType or a sequence thereof.")
 
     # If chains is an empty sequence, return an empty list.
     if not chains:
         return []
 
-    # Case 2: chains is a sequence of NodeProtocol instances.
+    # Case 2: chains is a sequence of NodeType instances.
     # Check the first element.
-    if isinstance(chains[0], NodeProtocol):
+    if isinstance(chains[0], NodeType):
         # Further verify each element in the sequence.
         for item in chains:
-            if not isinstance(item, NodeProtocol):
-                raise ValueError(
-                    "All items in the sequence must conform to NodeProtocol."
-                )
+            if not isinstance(item, NodeType):
+                raise ValueError("All items in the sequence must conform to NodeType.")
         # Wrap in a list since the outer structure should be a list of lists.
         return [list(chains)]  # type: ignore
 
-    # Case 3: chains is a sequence of sequences of NodeProtocol instances.
+    # Case 3: chains is a sequence of sequences of NodeType instances.
     normalized_chains = []
     for idx, chain in enumerate(chains):
         if not isinstance(chain, Sequence):
-            raise ValueError(
-                f"Element at index {idx} is not a sequence of NodeProtocol."
-            )
-        # Allow empty chains, or verify that all elements in the chain are NodeProtocol.
+            raise ValueError(f"Element at index {idx} is not a sequence of NodeType.")
+        # Allow empty chains, or verify that all elements in the chain are NodeType.
         chain_list = list(chain)
         for node in chain_list:
-            if not isinstance(node, NodeProtocol):
+            if not isinstance(node, NodeType):
                 raise ValueError(
-                    f"An item in chain {idx} does not conform to NodeProtocol."
+                    f"An item in chain {idx} does not conform to NodeType."
                 )
         normalized_chains.append(chain_list)
 
@@ -178,20 +184,20 @@ def validate_chains(
 
 
 def filter_intermediate_nodes(
-    chains: Sequence[Sequence[NodeProtocol]] | Sequence[NodeProtocol] | NodeProtocol,
-) -> List[List[NodeProtocol]]:
+    chains: Sequence[Sequence[NodeType]] | Sequence[NodeType] | NodeType,
+) -> List[List[NodeType]]:
     """Filter out intermediate table nodes from a sequence of chains.
 
     Intermediate nodes are identified based on their type and are replaced with their
     root nodes in the resulting chains.
 
     Args:
-        chains (Sequence[Sequence[NodeProtocol]] | Sequence[NodeProtocol] | NodeProtocol): A
+        chains (Sequence[Sequence[NodeType]] | Sequence[NodeType] | NodeType): A
             sequence of chains, where each chain is a sequence of nodes implementing the
-            `NodeProtocol`.
+            `NodeType`.
 
     Returns:
-        List[List[NodeProtocol]]: A list of updated chains with intermediate nodes removed
+        List[List[NodeType]]: A list of updated chains with intermediate nodes removed
         and replaced by their root nodes. Empty chains are excluded from the result.
 
     Notes:
@@ -203,45 +209,55 @@ def filter_intermediate_nodes(
 
     """
     validated_chains = validate_chains(chains)
+    source_nodes = identify_non_table_source_nodes(validated_chains)
+    target_nodes = identify_non_table_target_nodes(validated_chains)
 
-    # first identify the intermediate nodes
-    intermediate_nodes, validated_chains = identify_intermediate_steps(validated_chains)
-    assert isinstance(
-        intermediate_nodes, SimpleTupleStore
-    ), "intermediate_nodes should be an instance of IntermediateNodeStore"
-
-    # now we need to update the remaining chains with the intermediate nodes
-    new_chains = []
+    new_chains = set()
     for chain in validated_chains:
-        new_chain = []
-        for step in list(chain):
-            if step.source is None:
-                new_chain.append(step)
+        new_chain = set()
+        for step in chain:
+            # if source and target are TABLE, skip
+            if all(
+                (
+                    (step.source_type or "TABLE") == "TABLE",
+                    (step.target_type or "TABLE") == "TABLE",
+                )
+            ):
                 continue
 
-            if step.source in intermediate_nodes:
-                sources = [
-                    sl
-                    for src in (
-                        find_roots(s, intermediate_nodes)
-                        for s in intermediate_nodes.get_all(step.source)
+            node_attrs = {"source_type": "TABLE", "target_type": "TABLE"}
+            if isinstance(step, BaseModel):
+                node_attrs.update(
+                    step.model_dump(
+                        exclude_none=True,
+                        exclude_unset=True,
+                        exclude={"source_type", "target_type", "source", "target"},
                     )
-                    for sl in src
-                ]
-                for source in sources:
-                    step.source = source
-                    new_chain.append(step)
+                )
+
+            # check the target
+            if step.target_type == "TABLE":
+                # target is a table so let's copy it to the new node
+                node_attrs["target"] = step.target
             else:
-                new_chain.append(step)
-        new_chains.append(new_chain)
+                # target is not a table so let's find the root nodes for that chain
+                node_attrs["target"] = target_nodes[step.target]
 
-    # remove empty chains
-    new_chains = [chain for chain in new_chains if len(chain) > 0]
+            # check the source
+            if step.source_type == "TABLE":
+                # source is a table so let's copy it to the new node
+                node_attrs["source"] = step.source
+            else:
+                # source is not a table so let's find the root nodes for that chain
+                node_attrs["source"] = source_nodes[step.source]
 
-    return new_chains
+            new_chain.add(LineageNode.model_validate(node_attrs))
+        new_chains.add(frozenset(new_chain))
+
+    return [list(chain) for chain in new_chains if len(chain) > 0]
 
 
-def find_roots(node: str, intermediate_nodes: SimpleTupleStore) -> List[str]:
+def find_roots(node: str, intermediate_nodes: SimpleTupleStore[str, str]) -> List[str]:
     """Find the root nodes in a directed graph starting from a given node.
 
     This function recursively traverses a graph represented by an intermediate node store
@@ -249,7 +265,7 @@ def find_roots(node: str, intermediate_nodes: SimpleTupleStore) -> List[str]:
 
     Args:
         node (str): The starting node for the traversal.
-        intermediate_nodes (IntermediateNodeStore): A mapping of nodes to their connected child
+        intermediate_nodes (SimpleTupleStore[str, str]): A mapping of nodes to their connected child
             nodes.
 
     Returns:
@@ -269,47 +285,81 @@ def find_roots(node: str, intermediate_nodes: SimpleTupleStore) -> List[str]:
         return [node]
 
 
-def identify_intermediate_steps(
-    chains: Sequence[Sequence[NodeProtocol]] | Sequence[NodeProtocol] | NodeProtocol,
-) -> Tuple[SimpleTupleStore[str, str], List[List[NodeProtocol]]]:
-    """Identify and extract intermediate steps from a sequence of chains of nodes.
-
-    Args:
-        chains (Sequence[Sequence[NodeProtocol]] | Sequence[NodeProtocol] | NodeProtocol):
-            A sequence of chains, where each chain is a sequence of nodes, or a single node.
-
-    Returns:
-        Tuple[SimpleTupleStore, List[List[NodeProtocol]]]: A tuple containing:
-            - An `SimpleTupleStore` instance containing the intermediate nodes.
-            - A list of lists of `NodeProtocol` instances representing the validated chains.
-
-    Notes:
-        - The function validates the input chains before processing.
-        - Nodes are checked for their type using the `check_type` function, which defaults to checking for "TABLE" type.
-        - Intermediate nodes are removed from the chains and stored in the `SimpleTupleStore`.
-
-    """
+def identify_non_table_source_nodes(
+    chains: Sequence[Sequence[NodeType]] | Sequence[NodeType] | NodeType,
+) -> SimpleTupleStore[str, str]:
     validated_chains = validate_chains(chains)
 
-    def check_type(node: NodeProtocol, check: str = "TABLE"):
-        """Check the type of a node."""
-        _type = None
-        if hasattr(node, "table_type"):
-            _type = node.table_type  # type: ignore
-        elif hasattr(node, "type"):
-            _type = node.type  # type: ignore
-        if _type is None:
-            return False
-        return _type != check
+    node_store = SimpleTupleStore[str, str](
+        [
+            (str(step.target), str(step.source))
+            for chain in validated_chains
+            for step in chain
+        ]
+    )
 
-    intermediate_nodes = SimpleTupleStore[str, str]()
+    sources = {
+        node
+        for chain in validated_chains
+        for node in chain
+        if node.source_type != "TABLE"
+    }
 
-    for chain in list(validated_chains):
-        for step in list(chain):
-            if check_type(step):
-                if step.target is None:
-                    continue
-                intermediate_nodes[step.target] = step.source  # type: ignore
-                chain.remove(step)
+    # for each target find the roots - recursively
+    source_store = SimpleTupleStore[str, str]()
 
-    return intermediate_nodes, validated_chains
+    for source in sources:
+        # get all the upstream nodes
+        nodes = [
+            sl
+            for src in (
+                find_roots(s, node_store)
+                for s in node_store.get_all(str(source.source))
+            )
+            for sl in src
+        ]
+        # add the nodes to the target store
+        for node in nodes:
+            source_store.add((str(source.source), node))
+
+    return source_store
+
+
+def identify_non_table_target_nodes(
+    chains: Sequence[Sequence[NodeType]] | Sequence[NodeType] | NodeType,
+) -> SimpleTupleStore[str, str]:
+    validated_chains = validate_chains(chains)
+
+    node_store = SimpleTupleStore[str, str](
+        [
+            (str(step.source), str(step.target))
+            for chain in validated_chains
+            for step in chain
+        ]
+    )
+
+    targets = {
+        node
+        for chain in validated_chains
+        for node in chain
+        if node.target_type != "TABLE"
+    }
+
+    # for each target find the leaves - recursively
+    target_store = SimpleTupleStore[str, str]()
+
+    for target in targets:
+        # get all the downstream nodes
+        nodes = [
+            sl
+            for src in (
+                find_roots(s, node_store)
+                for s in node_store.get_all(str(target.target))
+            )
+            for sl in src
+        ]
+        # add the nodes to the target store
+        for node in nodes:
+            target_store.add((str(target.target), node))
+
+    return target_store

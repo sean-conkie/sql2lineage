@@ -12,10 +12,10 @@ from pydantic import BaseModel
 from sql2lineage.model import (
     ColumnLineage,
     Edge,
-    LineageResult,
     ParsedExpression,
     TableLineage,
 )
+from sql2lineage.types.model import LineageNode
 from sql2lineage.types.utils import NodeType
 from sql2lineage.utils import filter_intermediate_nodes
 
@@ -134,7 +134,7 @@ class LineageGraph:
         """Print the graph in a human-readable format."""
         print(self.pretty_string())
 
-    def print_neighbourhood(self, paths: List[List[LineageResult]]):
+    def print_neighbourhood(self, paths: List[List[LineageNode]]):
         """Print the neighborhood of nodes for each path in the provided list of paths.
 
         Args:
@@ -214,7 +214,7 @@ class LineageGraph:
         node: str,
         node_type: Literal["COLUMN", "TABLE"] = "COLUMN",
         max_steps: Optional[int] = None,
-    ) -> List[List[LineageResult]]:
+    ) -> List[List[LineageNode]]:
         """Retrieve the lineage of a specific node in the graph.
 
         This method identifies all possible paths from the root nodes (true sources)
@@ -250,7 +250,7 @@ class LineageGraph:
         source_node: str,
         node_type: Literal["COLUMN", "TABLE"] = "COLUMN",
         max_steps: Optional[int] = None,
-    ) -> List[List[LineageResult]]:
+    ) -> List[List[LineageNode]]:
         """Retrieve all descendant nodes of a given source node in the graph, grouped by paths.
 
         This method identifies all descendant nodes of the specified `source_node` in the graph
@@ -287,7 +287,7 @@ class LineageGraph:
         node_type: Literal["COLUMN", "TABLE"] = "COLUMN",
         max_steps: Optional[int] = None,
         physical_nodes_only: bool = False,
-    ) -> List[List[LineageResult]]:
+    ) -> List[List[LineageNode]]:
         """Retrieve the neighboring nodes of a given node in the lineage graph.
 
         This method fetches both the lineage (ancestors) and descendants of the specified node
@@ -325,13 +325,13 @@ class LineageGraph:
 
         if physical_nodes_only:
             chains = filter_intermediate_nodes(chains)
-            chains = cast(List[List[LineageResult]], chains)
+            chains = cast(List[List[LineageNode]], chains)
 
         return chains
 
     def _extract_path_steps(
         self, path: list, max_steps: Optional[int] = None
-    ) -> List[LineageResult]:
+    ) -> List[LineageNode]:
         """Extract detailed information about each step in a given path within the graph.
 
         Args:
@@ -359,6 +359,6 @@ class LineageGraph:
                 if edge.get(attr):
                     lineage_result[attr] = edge[attr]
 
-            step_info.append(LineageResult.model_validate(lineage_result))
+            step_info.append(LineageNode.model_validate(lineage_result))
 
         return step_info

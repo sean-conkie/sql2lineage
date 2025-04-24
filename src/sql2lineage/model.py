@@ -422,15 +422,3 @@ class ParsedResult(BaseModel):
             "columns": [col.model_dump() for col in self._columns],
             "tables": [src.model_dump() for src in self._tables],
         }
-
-
-class LineageResult(BaseModel):
-    """Lineage result."""
-
-    model_config = ConfigDict(extra="allow")
-
-    source: str = Field(..., description="The source of the lineage.")
-    target: str = Field(..., description="The target of the lineage.")
-    node_type: Optional[str] = Field(
-        None, description="The type of the node (e.g., 'COLUMN')."
-    )
