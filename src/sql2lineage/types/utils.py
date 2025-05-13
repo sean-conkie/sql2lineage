@@ -2,7 +2,7 @@
 
 from typing import Protocol, TypeAlias, runtime_checkable
 
-from sql2lineage.types.model import Edge, TableType
+from sql2lineage.types.model import LineageNode, TableType
 
 
 @runtime_checkable
@@ -50,7 +50,7 @@ class NodeEdgeProtocol(NodeProtocol, Protocol):
     @property
     def as_edge(  # noqa: D102 # pylint: disable=missing-function-docstring
         self,
-    ) -> Edge: ...
+    ) -> LineageNode: ...
 
 
 NodeType: TypeAlias = NodeProtocol | NodeEdgeProtocol

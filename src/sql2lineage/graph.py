@@ -3,7 +3,7 @@
 This module defines a LineageGraph class that uses NetworkX to represent.
 """
 
-from typing import List, Literal, Optional, Sequence, Set, cast
+from typing import Any, List, Literal, Optional, Sequence, Set, cast
 
 import networkx as nx
 from networkx.exception import NetworkXError
@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from sql2lineage.model import (
     ParsedExpression,
 )
-from sql2lineage.types.model import ColumnLineage, Edge, LineageNode, TableLineage
+from sql2lineage.types.model import ColumnLineage, LineageNode, TableLineage
 from sql2lineage.types.utils import NodeType
 from sql2lineage.utils import filter_intermediate_nodes
 
@@ -46,22 +46,28 @@ class LineageGraph:
                 to be added to the graph.
 
         """
+
+        def attrs_from_model(model: BaseModel) -> dict[str, Any]:
+            attrs = model.model_dump(
+                exclude_unset=True, exclude_none=True, exclude={"target", "source"}
+            )
+            attrs["u_of_edge"] = str(model.source)
+            attrs["v_of_edge"] = str(model.target)
+            return attrs
+
         for edge in edges:
             if hasattr(edge, "as_edge"):
                 # if the edge has an as_edge method we can use it to get the
                 # source and target nodes
                 edge = edge.as_edge  # type: ignore
-                assert isinstance(edge, Edge), "Edge must be an instance of Edge"
+                assert isinstance(edge, LineageNode), "Edge must be an instance of Edge"
 
-                self.graph.add_edge(**edge.model_dump(by_alias=True))  # type: ignore
+                self.graph.add_edge(**attrs_from_model(edge))  # type: ignore
             elif isinstance(edge, BaseModel):
                 # if the edge is a BaseModel we might have extra attributes
                 # that we want to add to the graph
-                attrs = edge.model_dump(exclude_unset=True, exclude_none=True)
-                source = attrs.pop("source")
-                target = attrs.pop("target")
 
-                self.graph.add_edge(str(source), str(target), **attrs)
+                self.graph.add_edge(**attrs_from_model(edge))
             else:
                 # if the edge is not a BaseModel we just add it as is
                 self.graph.add_edge(str(edge.source), str(edge.target))

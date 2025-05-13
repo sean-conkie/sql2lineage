@@ -283,13 +283,19 @@ def filter_intermediate_nodes(
             new_node.target = (
                 step.target
                 if step.target_type == "TABLE"
-                else target_nodes[str(step.target)]
+                else target_nodes.get(str(step.target))
             )
+            if new_node.target is None:
+                continue
+
             new_node.source = (
                 step.source
                 if step.source_type == "TABLE"
-                else source_nodes[str(step.source)]
+                else source_nodes.get(str(step.source))
             )
+            if new_node.source is None:
+                continue
+
             new_chain.update(new_node.to_nodes())
 
         new_chains.add(frozenset(new_chain))
@@ -328,6 +334,27 @@ def find_roots(node: str, intermediate_nodes: SimpleTupleStore[str, str]) -> Lis
 def identify_non_table_source_nodes(
     chains: Sequence[Sequence[NodeType]] | Sequence[NodeType] | NodeType,
 ) -> SimpleTupleStore[str, str]:
+    """Identify and process non-table source nodes from a given chain of nodes.
+
+    This function validates the input chains, extracts non-table source nodes,
+    and recursively finds all upstream nodes for each source. The results are
+    stored in a `SimpleTupleStore` mapping source nodes to their upstream nodes.
+
+    Args:
+        chains (Sequence[Sequence[NodeType]] | Sequence[NodeType] | NodeType):
+            A sequence of chains, where each chain is a sequence of nodes, or
+            a single node. Each node represents a step in a lineage.
+
+    Returns:
+        SimpleTupleStore[str, str]: A store containing tuples of source nodes
+        and their corresponding upstream nodes.
+
+    Notes:
+        - Nodes with a `source_type` of "TABLE" are excluded from processing.
+        - The function uses recursive traversal to identify all upstream nodes
+          for each non-table source node.
+
+    """
     validated_chains = validate_chains(chains)
 
     node_store = SimpleTupleStore[str, str](
@@ -368,6 +395,27 @@ def identify_non_table_source_nodes(
 def identify_non_table_target_nodes(
     chains: Sequence[Sequence[NodeType]] | Sequence[NodeType] | NodeType,
 ) -> SimpleTupleStore[str, str]:
+    """Identify and process non-table target nodes from a given set of chains.
+
+    This function validates the input chains, extracts non-table target nodes,
+    and recursively finds all downstream nodes for each target. The results are
+    stored in a `SimpleTupleStore` object.
+
+    Args:
+        chains (Sequence[Sequence[NodeType]] | Sequence[NodeType] | NodeType):
+            The input chains of nodes to process. Each chain is a sequence of
+            nodes, or it can be a single node or a sequence of nodes.
+
+    Returns:
+        SimpleTupleStore[str, str]: A store containing tuples of target nodes
+        and their corresponding downstream nodes.
+
+    Notes:
+        - Nodes with a `target_type` of "TABLE" are excluded from processing.
+        - The function recursively identifies all downstream nodes for each
+          non-table target node.
+
+    """
     validated_chains = validate_chains(chains)
 
     node_store = SimpleTupleStore[str, str](

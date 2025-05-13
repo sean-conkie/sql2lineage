@@ -11,30 +11,16 @@ from pydantic import (
 )
 from pydantic.config import ConfigDict
 
-
-class Edge(BaseModel):
-    """Edge information."""
-
-    model_config = ConfigDict(extra="allow")
-
-    source: str = Field(
-        ..., description="The source of the edge.", serialization_alias="u_of_edge"
-    )
-    target: str = Field(
-        ..., description="The target of the edge.", serialization_alias="v_of_edge"
-    )
-
-
 TableType: TypeAlias = Literal["TABLE", "SUBQUERY", "CTE", "UNNEST"]
 
 
 class LineageNode(BaseModel):
-    """A node in the lineage graph."""
+    """Lineage node information."""
 
     model_config = ConfigDict(extra="allow")
 
-    source: str = Field(..., description="The source of the lineage.")
-    target: str = Field(..., description="The target of the lineage.")
+    source: str = Field(..., description="The source of the edge.")
+    target: str = Field(..., description="The target of the edge.")
     node_type: Optional[str] = Field(
         None, description="The type of the node (e.g., 'COLUMN')."
     )
@@ -113,7 +99,7 @@ class TableLineage(BaseModel):
         )
         attrs["source"] = self.source.to_str
         attrs["target"] = self.target.to_str
-        return Edge.model_validate(attrs)
+        return LineageNode.model_validate(attrs)
 
 
 class DataColumn(BaseModel):
@@ -181,4 +167,4 @@ class ColumnLineage(BaseModel):
         )
         attrs["source"] = self.source.to_str
         attrs["target"] = self.target.to_str
-        return Edge.model_validate(attrs)
+        return LineageNode.model_validate(attrs)
