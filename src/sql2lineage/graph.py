@@ -3,19 +3,17 @@
 This module defines a LineageGraph class that uses NetworkX to represent.
 """
 
-from typing import List, Literal, Optional, Sequence, Set, cast
+from typing import Any, List, Literal, Optional, Sequence, Set, cast
 
 import networkx as nx
 from networkx.exception import NetworkXError
 from pydantic import BaseModel
 
 from sql2lineage.model import (
-    ColumnLineage,
-    LineageResult,
     ParsedExpression,
-    SourceTable,
 )
-from sql2lineage.types.utils import NodeProtocol
+from sql2lineage.types.model import ColumnLineage, LineageNode, TableLineage
+from sql2lineage.types.utils import NodeType
 from sql2lineage.utils import filter_intermediate_nodes
 
 
@@ -28,7 +26,8 @@ class LineageGraph:
     _attrs = (
         "type",
         "action",
-        "table_type",
+        "target_type",
+        "source_type",
         "node_type",
     )
     """Attributes to be taken from the edges of the graph."""
@@ -36,31 +35,52 @@ class LineageGraph:
     def __init__(self):
         self.graph = nx.DiGraph()
 
-    def add_edges(self, edges: Sequence[NodeProtocol]):
+    def add_edges(self, edges: Sequence[NodeType]):
         """Add edges to the graph.
 
         This method takes a set of nodes and adds them as edges to the graph.
         Each edge is represented by a tuple of source and target nodes.
 
         Args:
-            edges (Set[NodeProtocol]): A set of nodes representing the edges
+            edges (Set[NodeType]): A set of nodes representing the edges
                 to be added to the graph.
 
         """
+
+        def attrs_from_model(model: NodeType) -> dict[str, Any]:
+            attrs = {}
+
+            if isinstance(model, BaseModel):
+                attrs.update(
+                    model.model_dump(
+                        exclude_unset=True,
+                        exclude_none=True,
+                        exclude={"target", "source"},
+                    )
+                )
+
+            attrs["u_of_edge"] = str(model.source)
+            attrs["v_of_edge"] = str(model.target)
+            return attrs
+
         for edge in edges:
-            if isinstance(edge, BaseModel):
+            if hasattr(edge, "as_edge"):
+                # if the edge has an as_edge method we can use it to get the
+                # source and target nodes
+                edge = edge.as_edge  # type: ignore
+                assert isinstance(edge, LineageNode), "Edge must be an instance of Edge"
+
+                self.graph.add_edge(**attrs_from_model(edge))  # type: ignore
+            elif isinstance(edge, BaseModel):
                 # if the edge is a BaseModel we might have extra attributes
                 # that we want to add to the graph
-                attrs = edge.model_dump(exclude_unset=True, exclude_none=True)
-                source = attrs.pop("source")
-                target = attrs.pop("target")
 
-                self.graph.add_edge(source, target, **attrs)
+                self.graph.add_edge(**attrs_from_model(edge))
             else:
                 # if the edge is not a BaseModel we just add it as is
-                self.graph.add_edge(edge.source, edge.target)
+                self.graph.add_edge(str(edge.source), str(edge.target))
 
-    def add_table_edges(self, table_edges: Set[SourceTable]):
+    def add_table_edges(self, table_edges: Set[TableLineage]):
         """Add edges representing table relationships to the graph.
 
         This method takes a set of `SourceTable` objects, where each object
@@ -125,7 +145,7 @@ class LineageGraph:
         """Print the graph in a human-readable format."""
         print(self.pretty_string())
 
-    def print_neighbourhood(self, paths: List[List[LineageResult]]):
+    def print_neighbourhood(self, paths: List[List[LineageNode]]):
         """Print the neighborhood of nodes for each path in the provided list of paths.
 
         Args:
@@ -205,7 +225,7 @@ class LineageGraph:
         node: str,
         node_type: Literal["COLUMN", "TABLE"] = "COLUMN",
         max_steps: Optional[int] = None,
-    ) -> List[List[LineageResult]]:
+    ) -> List[List[LineageNode]]:
         """Retrieve the lineage of a specific node in the graph.
 
         This method identifies all possible paths from the root nodes (true sources)
@@ -241,7 +261,7 @@ class LineageGraph:
         source_node: str,
         node_type: Literal["COLUMN", "TABLE"] = "COLUMN",
         max_steps: Optional[int] = None,
-    ) -> List[List[LineageResult]]:
+    ) -> List[List[LineageNode]]:
         """Retrieve all descendant nodes of a given source node in the graph, grouped by paths.
 
         This method identifies all descendant nodes of the specified `source_node` in the graph
@@ -278,7 +298,7 @@ class LineageGraph:
         node_type: Literal["COLUMN", "TABLE"] = "COLUMN",
         max_steps: Optional[int] = None,
         physical_nodes_only: bool = False,
-    ) -> List[List[LineageResult]]:
+    ) -> List[List[LineageNode]]:
         """Retrieve the neighboring nodes of a given node in the lineage graph.
 
         This method fetches both the lineage (ancestors) and descendants of the specified node
@@ -316,13 +336,13 @@ class LineageGraph:
 
         if physical_nodes_only:
             chains = filter_intermediate_nodes(chains)
-            chains = cast(List[List[LineageResult]], chains)
+            chains = cast(List[List[LineageNode]], chains)
 
         return chains
 
     def _extract_path_steps(
         self, path: list, max_steps: Optional[int] = None
-    ) -> List[LineageResult]:
+    ) -> List[LineageNode]:
         """Extract detailed information about each step in a given path within the graph.
 
         Args:
@@ -350,6 +370,6 @@ class LineageGraph:
                 if edge.get(attr):
                     lineage_result[attr] = edge[attr]
 
-            step_info.append(LineageResult.model_validate(lineage_result))
+            step_info.append(LineageNode.model_validate(lineage_result))
 
         return step_info

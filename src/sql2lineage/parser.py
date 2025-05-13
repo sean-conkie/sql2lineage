@@ -27,7 +27,17 @@ from sqlglot.expressions import (
     Unnest,
 )
 
-from sql2lineage.model import ParsedExpression, ParsedResult, SourceTable
+from sql2lineage.model import (
+    ColumnLineage,
+    DataColumn,
+    DataTable,
+    ParsedExpression,
+    ParsedResult,
+    TableLineage,
+)
+from sql2lineage.types.model import TableType
+from sql2lineage.types.parser import DATATABLE_DEFAULT
+from sql2lineage.utils import SimpleTupleStore
 
 StrPath: TypeAlias = str | PathLike[str]
 
@@ -46,6 +56,7 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
 
         """
         self._dialect = dialect
+        self._table_store = SimpleTupleStore[str, DataTable]()
 
     def _extract_target(self, expression: Expression, index: int) -> str:
         """Extract the target from the expression.
@@ -124,41 +135,106 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
         """
         return ".".join([identifier.name for identifier in parts])
 
-    def _parse_expression(self, expression: Expression, index: int) -> ParsedExpression:
+    def _get_or_create_source_table(
+        self,
+        name: str,
+    ) -> DataTable:
+
+        if name in self._table_store:
+            source_table = self._table_store[name]
+        else:
+            source_table = DataTable(name=name, type="TABLE")
+            self._table_store[name] = source_table
+
+        return source_table
+
+    def _process_subquery(
+        self, subquery: Subquery, parsed_expression: ParsedExpression
+    ):
+        """Process a subquery and return its target table.
+
+        Args:
+            subquery (Subquery): The subquery to process.
+            parsed_expression (ParsedExpression): The parsed expression to update.
+
+        Returns:
+            DataTable: The target table of the subquery.
+
+        """
+        index = len(parsed_expression.subqueries)
+
+        processed_subquery = self._parse_expression(
+            subquery,
+            index,
+            target=f"subquery{index:03}",
+            type="SUBQUERY",
+        )
+        parsed_expression.subqueries[subquery.alias_or_name] = processed_subquery
+        for table in processed_subquery.tables:
+            if table.source.name not in self._table_store:
+                self._table_store[table.source.name] = table.source
+            parsed_expression.tables.add(table)
+
+        source_table = processed_subquery.target
+        if source_table.name not in self._table_store:
+            self._table_store[source_table.name] = source_table
+
+        for column in processed_subquery.columns:
+            parsed_expression.columns.add(column)
+
+        parsed_expression.tables.add(
+            TableLineage(
+                target=parsed_expression.target,
+                source=source_table,
+                alias=subquery.alias_or_name,
+            )
+        )
+
+    def _parse_expression(
+        self,
+        expression: Expression,
+        index: int,
+        target: Optional[str] = None,
+        type: Optional[TableType] = None,  # pylint: disable=redefined-builtin
+    ) -> ParsedExpression:
+
+        target = target or self._extract_target(expression, index)
+        if type is None:
+            type = self._table_store.get(target, DATATABLE_DEFAULT).type
 
         parsed_expression = ParsedExpression(
-            target=self._extract_target(expression, index),
-            expression=expression.sql(pretty=True),
+            target=DataTable(name=target, type=type),
+            expression=expression.sql(pretty=True, dialect=self._dialect),
         )
 
         for cte in expression.find_all(CTE):
             # CTE creates an alias for the table
-            cte_target = cte.alias_or_name
+            cte_target = DataTable(name=cte.alias_or_name, type="CTE")
+            if cte_target.name not in self._table_store:
+                self._table_store[cte_target.name] = cte_target
 
             # find the source tables for the CTE
             # parse the CTE
-            parsed_cte = self._parse_expression(cte.this, index)
+            parsed_cte = self._parse_expression(
+                cte.this, index, target=cte_target.name, type=cte_target.type
+            )
 
-            for source in parsed_cte.tables:
-                parsed_expression.tables.add(
-                    SourceTable(
-                        target=cte_target,
-                        source=source.source,
-                        alias=source.alias,
-                        type="CTE",
-                    )
-                )
+            for table in parsed_cte.tables:
+                parsed_expression.tables.add(table)
 
             # create a default source table
-            if source_table := cte.find(From):
-                if hasattr(source_table.this, "parts"):
-                    source_table = self._join_parts(source_table.this.parts)
-                elif source_table_table := source_table.find(Table):
-                    source_table = self._join_parts(source_table_table.parts)
-                else:
-                    source_table = None
+            tbl_name = f"expr{index:03}"
+            if cte_source_table := cte.find(From):
+                if hasattr(cte_source_table.this, "parts"):
+                    tbl_name = self._join_parts(cte_source_table.this.parts)
+                elif source_table_table := cte_source_table.find(Table):
+                    tbl_name = self._join_parts(source_table_table.parts)
 
-            parsed_expression.update_column_lineage(cte, source_table, cte_target)
+            source_table = self._get_or_create_source_table(tbl_name)
+
+            parsed_expression.update_column_lineage(
+                cte, source_table, cte_target, self._table_store
+            )
 
         unnests = set()
 
@@ -167,22 +243,8 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
             subqueries = list(join.find_all(Subquery))
             if subqueries:
                 for subquery in subqueries:
-
-                    parsed_expression.subqueries[subquery.alias_or_name] = (
-                        self._parse_expression(subquery, index)
-                    )
-
-                    for table in parsed_expression.subqueries[
-                        subquery.alias_or_name
-                    ].tables:
-                        parsed_expression.tables.add(
-                            SourceTable(
-                                target=parsed_expression.target,
-                                source=table.source,
-                                alias=table.alias,
-                                type="SUBQUERY",
-                            )
-                        )
+                    # parse the subquery
+                    self._process_subquery(subquery, parsed_expression)
 
             elif isinstance(join.this, Unnest):
                 # the table is stored in a column and alias will be the alias_column_names
@@ -196,29 +258,18 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
                     else join.this.alias_or_name
                 )
 
-                unnests.add(
-                    SourceTable(
-                        target=parsed_expression.target,
-                        source=source_table,
-                        alias=alias,
-                        type="UNNEST",
-                    ),
-                )
+                unnests.add((source_table, alias))
 
             else:
-                source_table = self._join_parts(join.this.parts)
-                parsed_expression.tables.add(
-                    SourceTable(
-                        target=parsed_expression.target,
-                        source=source_table,
-                        alias=join.alias_or_name,
-                        type="TABLE",
-                    ),
+                source_table = self._add_table_to_expression(
+                    parsed_expression,
+                    join.this.parts,
+                    parsed_expression.target,
+                    join.alias_or_name,
                 )
 
         # find the source tables for the main query
         source_table = None
-        source_table_type = None
         source = self._extract_source(expression)
         if source is None:
             raise sqlglot.errors.ParseError(f"Unable to find table source {expression}")
@@ -228,55 +279,99 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
             pass
 
         elif isinstance(source, Table):
-            source_table = self._join_parts(source.parts)
-            source_table_type = "TABLE"
-            parsed_expression.tables.add(
-                SourceTable(
-                    target=parsed_expression.target,
-                    source=source_table,
-                    alias=source.alias_or_name,
-                    type=source_table_type,
-                ),
+            source_table = self._add_table_to_expression(
+                parsed_expression,
+                source.parts,
+                parsed_expression.target,
+                source.alias_or_name,
             )
         elif isinstance(source, Subquery):
             # parse the subquery
-            subquery = self._parse_expression(source, index)
-            parsed_expression.subqueries[source.alias_or_name] = subquery
-            for subquery_source in subquery.tables:
-                if source_table is None:
-                    source_table = subquery_source.source
-                parsed_expression.tables.add(
-                    SourceTable(
-                        target=parsed_expression.target,
-                        source=subquery_source.source,
-                        alias=subquery_source.alias,
-                        type="SUBQUERY",
-                    )
-                )
+            self._process_subquery(source, parsed_expression)
+
+        if source_table is None:
+            source_table = self._get_or_create_source_table(f"expr{index:03}")
 
         # process the unnests
         for unnest in unnests:
             # the unnest will be a column so if it has 2 parts we know the alias
             # otherwise use the default source
-            if len(unnest.source.split(".")) == 2:
-                alias = unnest.source.split(".")[0]
+
+            unnest_source, unnest_alias = unnest
+
+            if len(unnest_source.split(".")) == 2:
+                alias, col = unnest_source.split(".")
                 for table in parsed_expression.tables:
                     if alias == table.alias:
-                        unnest.source = table.source
-                        unnest.type = table.type
+                        new_source = f"{table.source.name}.{col}"
+                        unnest_source = DataTable(name=new_source, type="UNNEST")
                         break
 
             else:
                 # use the default source
-                unnest.source = source_table
-                unnest.type = source_table_type or "TABLE"
+                new_source = f"{source_table.name}.{unnest_source}"
+                unnest_source = DataTable(name=new_source, type="UNNEST")
 
-            parsed_expression.tables.add(unnest)
+            parsed_expression.tables.add(
+                TableLineage(
+                    target=parsed_expression.target,
+                    source=unnest_source,
+                    alias=unnest_alias,
+                )
+            )
 
         # find the columns for the main query
-        parsed_expression.update_column_lineage(expression, source_table)
+        parsed_expression.update_column_lineage(
+            expression,
+            source_table,
+            target=parsed_expression.target,
+            table_store=self._table_store,
+        )
 
         return parsed_expression
+
+    def _add_table_to_expression(
+        self,
+        parsed_expression: ParsedExpression,
+        parts: List[Expression],
+        target: DataTable,
+        alias: Optional[str] = None,
+        type: Optional[TableType] = None,  # pylint: disable=redefined-builtin
+    ):
+        st = self._join_parts(parts)
+
+        source_table = DataTable(
+            name=st,
+            type=self._table_store.get(
+                st, DataTable(name="", type=type) if type else DATATABLE_DEFAULT
+            ).type,
+        )
+
+        if st not in self._table_store:
+            self._table_store[st] = source_table
+        parsed_expression.tables.add(
+            TableLineage(
+                target=target,
+                source=source_table,
+                alias=alias,
+            )
+        )
+
+        return source_table
+
+    def _add_column_to_expression(
+        self,
+        parsed_expression: ParsedExpression,
+        source: DataColumn,
+        target: DataColumn,
+    ):
+        parsed_expression.columns.add(
+            ColumnLineage(
+                target=target,
+                source=source,
+                action="COPY",
+            )
+        )
 
     def extract_lineage(
         self,
