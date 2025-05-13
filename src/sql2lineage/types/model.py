@@ -2,7 +2,7 @@
 
 # pylint: disable=no-member
 
-from typing import Literal, Optional, TypeAlias
+from typing import Optional
 
 from pydantic import (
     BaseModel,
@@ -11,7 +11,7 @@ from pydantic import (
 )
 from pydantic.config import ConfigDict
 
-TableType: TypeAlias = Literal["TABLE", "SUBQUERY", "CTE", "UNNEST"]
+from sql2lineage.types.table import TableType
 
 
 class LineageNode(BaseModel):
@@ -81,13 +81,13 @@ class TableLineage(BaseModel):
 
     @computed_field
     @property
-    def source_type(self) -> str:
+    def source_type(self) -> TableType:
         """Get the source type of the table lineage."""
         return self.source.type
 
     @computed_field
     @property
-    def target_type(self) -> str:
+    def target_type(self) -> TableType:
         """Get the table type of the source table."""
         return self.target.type
 
@@ -147,17 +147,19 @@ class ColumnLineage(BaseModel):
 
     @computed_field
     @property
-    def source_type(self) -> Optional[str]:
+    def source_type(self) -> TableType:
         """Get the source type of the table lineage."""
         if self.source.table:
             return self.source.table.type
+        return "NONE"
 
     @computed_field
     @property
-    def target_type(self) -> Optional[str]:
+    def target_type(self) -> TableType:
         """Get the table type of the source table."""
         if self.target.table:
             return self.target.table.type
+        return "NONE"
 
     @property
     def as_edge(self):

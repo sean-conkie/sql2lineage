@@ -47,10 +47,18 @@ class LineageGraph:
 
         """
 
-        def attrs_from_model(model: BaseModel) -> dict[str, Any]:
-            attrs = model.model_dump(
-                exclude_unset=True, exclude_none=True, exclude={"target", "source"}
-            )
+        def attrs_from_model(model: NodeType) -> dict[str, Any]:
+            attrs = {}
+
+            if isinstance(model, BaseModel):
+                attrs.update(
+                    model.model_dump(
+                        exclude_unset=True,
+                        exclude_none=True,
+                        exclude={"target", "source"},
+                    )
+                )
+
             attrs["u_of_edge"] = str(model.source)
             attrs["v_of_edge"] = str(model.target)
             return attrs

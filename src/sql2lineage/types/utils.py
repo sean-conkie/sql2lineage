@@ -1,8 +1,14 @@
 """Lineage graph utilities."""
 
-from typing import Protocol, TypeAlias, runtime_checkable
+from __future__ import annotations
 
-from sql2lineage.types.model import LineageNode, TableType
+from typing import TYPE_CHECKING, Protocol, TypeAlias, runtime_checkable
+
+from sql2lineage.types.table import TableType
+
+if TYPE_CHECKING:
+    # only for mypy / pyright / type-checkers, never at runtime
+    from sql2lineage.types.model import LineageNode
 
 
 @runtime_checkable
@@ -39,6 +45,8 @@ class NodeProtocol(Protocol):
     def target_type(  # noqa: D102 # pylint: disable=missing-function-docstring
         self,
     ) -> TableType: ...
+
+
 @runtime_checkable
 class NodeEdgeProtocol(NodeProtocol, Protocol):
     """Protocol for a node in the lineage graph that can be converted to an edge.
