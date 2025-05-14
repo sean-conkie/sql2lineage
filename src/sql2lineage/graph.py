@@ -251,14 +251,23 @@ class LineageGraph:
 
         for source in root_nodes:
             for path in nx.all_simple_paths(self.graph, source, node):
+
+                # manipulate the paths to get the correct number of steps
+                if max_steps:
+                    srt = list(reversed(path))
+                    sliced = srt[: max_steps + 1]
+                    path = list(reversed(sliced))
+
                 step_info = self._extract_path_steps(path, max_steps)
-                chains.append(step_info)
+                if step_info not in chains:
+                    # Avoid duplicates
+                    chains.append(step_info)
 
         return chains
 
     def get_node_descendants(
         self,
-        source_node: str,
+        node: str,
         node_type: Literal["COLUMN", "TABLE"] = "COLUMN",
         max_steps: Optional[int] = None,
     ) -> List[List[LineageNode]]:
@@ -269,7 +278,7 @@ class LineageGraph:
         from the `source_node` to a root node of the specified `node_type`.
 
         Args:
-            source_node (str): The starting node in the graph from which to find descendants.
+            node (str): The starting node in the graph from which to find descendants.
             node_type (Literal["COLUMN", "TABLE"], optional): The type of node to consider as
                 root nodes in the graph. Defaults to "COLUMN".
             max_steps (int, optional): The maximum number of steps to extract from each path.
@@ -280,16 +289,19 @@ class LineageGraph:
             representing a path from the `source_node` to a root node of the specified type.
 
         """
-        descendents = nx.descendants(self.graph, source_node)
+        descendents = nx.descendants(self.graph, node)
 
         root_nodes = [
             node for node in descendents if self.is_leaf_node(node, node_type)
         ]
         chains = []
         for source in root_nodes:
-            for path in nx.all_simple_paths(self.graph, source_node, source):
+            for path in nx.all_simple_paths(self.graph, node, source):
                 step_info = self._extract_path_steps(path, max_steps)
-                chains.append(step_info)
+                if step_info not in chains:
+                    # Avoid duplicates
+                    chains.append(step_info)
+
         return chains
 
     def get_node_neighbours(
