@@ -112,9 +112,7 @@ class TestGraph:
         graph = LineageGraph()
         graph.from_parsed(expression.expressions)
 
-        nodes = graph.get_node_descendants(
-            source_node="orders_with_tax", node_type="TABLE"
-        )
+        nodes = graph.get_node_descendants(node="orders_with_tax", node_type="TABLE")
         assert nodes == [
             [
                 LineageNode(
