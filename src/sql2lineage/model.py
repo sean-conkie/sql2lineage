@@ -128,21 +128,26 @@ class ParsedExpression(BaseModel):
             alias = expression.alias
         else:
             alias = f"{alias}.{expression.alias}"
-        columns = expression.this.find_all(Column)
-        for column in columns:
+        # columns = expression.this.find_all(Column)
+        for expr in expression.this.expressions:
 
             # check if the column is a struct
-            if isinstance(column, Struct):
+            if isinstance(expr, Struct):
                 self._process_struct(
-                    column,
+                    expr,
                     source,
                     target,
                     table_store,
                     alias=alias,
                 )
             else:
-                source_column = self._get_source_column(column, source, table_store)
-                target_column = DataColumn(name=f"{alias}.{column.name}", table=target)
+
+                expr_name = expr.alias_or_name or expr.name
+                if not isinstance(expr, Column):
+                    expr = expr.expression
+
+                source_column = self._get_source_column(expr, source, table_store)
+                target_column = DataColumn(name=f"{alias}.{expr_name}", table=target)
 
                 self.columns.add(
                     ColumnLineage(
