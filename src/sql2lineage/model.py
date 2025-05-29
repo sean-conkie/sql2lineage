@@ -13,7 +13,7 @@ from pydantic import (
     model_serializer,
 )
 from sqlglot import Expression
-from sqlglot.expressions import Alias, Column, Star
+from sqlglot.expressions import Alias, Column, Star, Struct
 
 from sql2lineage.types.model import ColumnLineage, DataColumn, DataTable, TableLineage
 from sql2lineage.utils import SimpleTupleStore
@@ -96,20 +96,66 @@ class ParsedExpression(BaseModel):
                     # does the column exist in the subquery?
                     for col in subquery.columns:
                         if col.target.name == column.name:
-                            # return col.source, "SUBQUERY"
                             _source_column = col.target.name
                             _source_table = subquery.target
                             break
 
         elif column.parts and source_table:
             joined_parts = ".".join([identifier.name for identifier in column.parts])
-            _source_column = joined_parts.replace(source_table.name, "")
+            _source_column = joined_parts.replace(source_table.name, "").strip(".")
         elif column.parts:
             _source_column = column.parts[-1].name
             _table = ".".join([identifier.name for identifier in column.parts[:-1]])
             _source_table = table_store.get(_table)
 
+        if _source_column is None:
+            # if we still don't have a source column, use the column name
+            _source_column = column.name
+
         return DataColumn(name=_source_column or "", table=_source_table)
+
+    def _process_struct(
+        self,
+        expression: Expression,
+        source: DataTable,
+        target: DataTable,
+        table_store: SimpleTupleStore[str, DataTable],
+        alias: Optional[str] = None,
+    ):
+
+        # handle struct columns - burst them out
+        if alias is None:
+            alias = expression.alias
+        else:
+            alias = f"{alias}.{expression.alias}"
+        # columns = expression.this.find_all(Column)
+        for expr in expression.this.expressions:
+
+            # check if the column is a struct
+            if isinstance(expr, Struct):
+                self._process_struct(
+                    expr,
+                    source,
+                    target,
+                    table_store,
+                    alias=alias,
+                )
+            else:
+
+                expr_name = expr.alias_or_name or expr.name
+                if not isinstance(expr, Column):
+                    expr = expr.expression
+
+                source_column = self._get_source_column(expr, source, table_store)
+                target_column = DataColumn(name=f"{alias}.{expr_name}", table=target)
+
+                self.columns.add(
+                    ColumnLineage(
+                        target=target_column,
+                        source=source_column,
+                        action="COPY",
+                    )
+                )
 
     def update_column_lineage(
         self,
@@ -141,7 +187,16 @@ class ParsedExpression(BaseModel):
 
         for select in expression.selects:  # type: ignore
 
-            if isinstance(select, Column):
+            if isinstance(select.this, Struct):
+                # handle struct columns - burst them out
+                self._process_struct(
+                    select,
+                    source,
+                    target,
+                    table_store,
+                )
+
+            elif isinstance(select, Column):
 
                 source_column = self._get_source_column(select, source, table_store)
                 target_column = DataColumn(name=select.alias_or_name, table=target)

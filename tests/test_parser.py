@@ -80,6 +80,19 @@ def unnest(result: ParsedResult) -> bool:
     return True
 
 
+def query_with_struct(result: ParsedResult) -> bool:
+    """Test the struct SQL file."""
+
+    assert len(result.expressions) == 1
+    assert len(result.expressions[0].columns) == 9
+    assert len(result.expressions[0].tables) == 2
+
+    column_names = [col.target.name for col in result.expressions[0].columns]
+    assert "country_of_birth.continent" in column_names
+
+    return True
+
+
 class TestParser:
     """TestParser."""
 
@@ -126,6 +139,11 @@ class TestParser:
                 unnest,
                 id="unnest",
             ),
+            pytest.param(
+                "tests/sql/query_with_struct.sql",
+                query_with_struct,
+                id="query_with_struct",
+            ),
         ],
     )
     def test_extract_lineage(
@@ -162,11 +180,11 @@ class TestParser:
         """Test the SQL parser with various SQL files."""
         parser = SQLLineageParser(dialect="bigquery")
         result = parser.extract_lineages_from_file("tests/sql", glob="*.sql")
-        assert len(result.expressions) == 7
+        assert len(result.expressions) == 8
 
     @pytest.mark.asyncio
     async def test_aextract_lineages_from_file(self):
         """Test the SQL parser with various SQL files."""
         parser = SQLLineageParser(dialect="bigquery")
         result = await parser.aextract_lineages_from_file("tests/sql", glob="*.sql")
-        assert len(result.expressions) == 7
+        assert len(result.expressions) == 8
