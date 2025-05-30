@@ -3,7 +3,7 @@
 # pylint: disable=no-member
 
 import re
-from typing import Dict, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 
 from pydantic import (
     BaseModel,
@@ -128,6 +128,57 @@ class ParsedExpression(BaseModel):
 
         return DataColumn(name=_source_column or "", table=_source_table)
 
+    def _process_struct_override(
+        self,
+        source_column: DataColumn,
+        target: DataTable,
+        struct_override: Dict[str, List[str]],
+    ) -> Dict[str, List[str]]:
+        """Process a struct column override by expanding the struct fields into individual columns.
+
+        Maps the struct override from the source to the target table, and updates the struct
+        override mapping.
+
+        Args:
+            source_column (DataColumn): The source struct column to be overridden.
+            target (DataTable): The target table where the struct fields will be mapped.
+            struct_override (Dict[str, List[str]]): A mapping from column string representations
+                to their respective struct field names.
+
+        Returns:
+            Dict[str, List[str]]: The updated struct_override dictionary with the new struct column
+                mapping added if necessary.
+
+        """
+        struct_fields = struct_override[source_column.to_str]
+        source_columns = [
+            DataColumn(
+                table=source_column.table,
+                name=f"{source_column.name}.{field}",
+            )
+            for field in struct_fields
+        ]
+        target_columns = [
+            DataColumn(table=target, name=f"{source_column.name}.{field}")
+            for field in struct_fields
+        ]
+        self._add_columns(
+            *[
+                (source_col, target_col, "COPY")
+                for source_col, target_col in zip(source_columns, target_columns)
+            ]
+        )
+
+        # add the new struct column to the override
+        new_struct_column = DataColumn(
+            table=target,
+            name=source_column.name,
+        )
+        if new_struct_column.to_str not in struct_override:
+            struct_override[new_struct_column.to_str] = struct_fields
+
+        return struct_override
+
     def _process_struct(
         self,
         expression: Expression,
@@ -171,12 +222,26 @@ class ParsedExpression(BaseModel):
                     )
                 )
 
+    def _add_columns(
+        self,
+        *columns: Tuple[DataColumn, DataColumn, str],
+    ):
+        for source, target, action in columns:
+            self.columns.add(
+                ColumnLineage(
+                    target=target,
+                    source=source,
+                    action=action,
+                )
+            )
+
     def update_column_lineage(
         self,
         expression: Expression,
         source: DataTable,
         target: DataTable,
         table_store: SimpleTupleStore[str, DataTable],
+        struct_override: Optional[dict[str, List[str]]] = None,
     ):
         """
         Update the column lineage information based on the provided SQL expression.
@@ -191,6 +256,9 @@ class ParsedExpression(BaseModel):
             target (DataTable): The target table to which columns are mapped.
             table_store (SimpleTupleStore[str, DataTable]): A store containing mappings
                 of table names to DataTable objects.
+            struct_override (Optional[dict[str, List[str]]]): A dictionary that maps struct
+                column names to their respective field names. This is used to handle struct
+                columns and their overrides. If not provided, defaults to an empty dictionary.
 
         Returns:
             None
@@ -198,6 +266,9 @@ class ParsedExpression(BaseModel):
         """  # noqa: D212
         if not hasattr(expression, "selects"):
             return
+
+        if struct_override is None:
+            struct_override = {}
 
         for select in expression.selects:  # type: ignore
 
@@ -213,15 +284,17 @@ class ParsedExpression(BaseModel):
             elif isinstance(select, Column):
 
                 source_column = self._get_source_column(select, source, table_store)
-                target_column = DataColumn(name=select.alias_or_name, table=target)
 
-                self.columns.add(
-                    ColumnLineage(
-                        target=target_column,
-                        source=source_column,
-                        action="COPY",
+                # check if the column is in the struct override
+                if source_column.to_str in struct_override:
+                    struct_override = self._process_struct_override(
+                        source_column, target, struct_override
                     )
-                )
+                else:
+                    target_column = DataColumn(name=select.alias_or_name, table=target)
+                    self._add_columns(
+                        (source_column, target_column, "COPY"),
+                    )
 
             # find column aliases - transformations
             elif isinstance(select, Alias):
@@ -230,29 +303,13 @@ class ParsedExpression(BaseModel):
                     source_column = self._get_source_column(
                         select.this, source, table_store
                     )
-                    target_column = DataColumn(name=select.alias_or_name, table=target)
 
-                    self.columns.add(
-                        ColumnLineage(
-                            target=target_column,
-                            source=source_column,
-                            action="COPY",
+                    # check if the column is in the struct override
+                    if source_column.to_str in struct_override:
+                        struct_override = self._process_struct_override(
+                            source_column, target, struct_override
                         )
-                    )
-
-                else:
-
-                    for column in select.find_all(Column):
-                        source_column = self._get_source_column(
-                            column, source, table_store
-                        )
-
-                        pattern = re.compile(
-                            f"(?: as) {column.alias_or_name}", re.IGNORECASE
-                        )
-                        sql = pattern.sub("", select.sql())
-                        action = "TRANSFORM" if sql != column.sql() else "COPY"
-
+                    else:
                         target_column = DataColumn(
                             name=select.alias_or_name, table=target
                         )
@@ -261,9 +318,39 @@ class ParsedExpression(BaseModel):
                             ColumnLineage(
                                 target=target_column,
                                 source=source_column,
-                                action=action,
+                                action="COPY",
                             )
                         )
+
+                else:
+
+                    for column in select.find_all(Column):
+                        source_column = self._get_source_column(
+                            column, source, table_store
+                        )
+                        if source_column.to_str in struct_override:
+                            struct_override = self._process_struct_override(
+                                source_column, target, struct_override
+                            )
+                        else:
+
+                            pattern = re.compile(
+                                f"(?: as) {column.alias_or_name}", re.IGNORECASE
+                            )
+                            sql = pattern.sub("", select.sql())
+                            action = "TRANSFORM" if sql != column.sql() else "COPY"
+
+                            target_column = DataColumn(
+                                name=select.alias_or_name, table=target
+                            )
+
+                            self.columns.add(
+                                ColumnLineage(
+                                    target=target_column,
+                                    source=source_column,
+                                    action=action,
+                                )
+                            )
 
             # elif expression.find(Star):
             elif isinstance(select, Star):

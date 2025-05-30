@@ -192,7 +192,7 @@ Given the following SQL:
 
 ```sql
 
-create or replace table customers
+with customers as (
 select c.id,
        c.name,
        struct(
@@ -204,11 +204,9 @@ select c.id,
   from customer_raw c
   join customer_address a
     on c.id = a.customer_id
-;
+)
 
-select c.id,
-       c.name,
-       c.address
+select *
   from customers
 ;
 
