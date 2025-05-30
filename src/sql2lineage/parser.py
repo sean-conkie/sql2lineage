@@ -149,13 +149,18 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
         return source_table
 
     def _process_subquery(
-        self, subquery: Subquery, parsed_expression: ParsedExpression
+        self,
+        subquery: Subquery,
+        parsed_expression: ParsedExpression,
+        struct_override: Optional[dict[str, List[str]]] = None,
     ):
         """Process a subquery and return its target table.
 
         Args:
             subquery (Subquery): The subquery to process.
             parsed_expression (ParsedExpression): The parsed expression to update.
+            struct_override (Optional[dict[str, List[str]]]): A dictionary that can be used to override
+                the structure of the parsed expressions, allowing for custom handling of specific SQL constructs.
 
         Returns:
             DataTable: The target table of the subquery.
@@ -168,6 +173,7 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
             index,
             target=f"subquery{index:03}",
             type="SUBQUERY",
+            struct_override=struct_override,
         )
         parsed_expression.subqueries[subquery.alias_or_name] = processed_subquery
         for table in processed_subquery.tables:
@@ -196,6 +202,7 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
         index: int,
         target: Optional[str] = None,
         type: Optional[TableType] = None,  # pylint: disable=redefined-builtin
+        struct_override: Optional[dict[str, List[str]]] = None,
     ) -> ParsedExpression:
 
         target = target or self._extract_target(expression, index)
@@ -216,7 +223,11 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
             # find the source tables for the CTE
             # parse the CTE
             parsed_cte = self._parse_expression(
-                cte.this, index, target=cte_target.name, type=cte_target.type
+                cte.this,
+                index,
+                target=cte_target.name,
+                type=cte_target.type,
+                struct_override=struct_override,
             )
 
             for table in parsed_cte.tables:
@@ -233,7 +244,11 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
             source_table = self._get_or_create_source_table(tbl_name)
 
             parsed_expression.update_column_lineage(
-                cte, source_table, cte_target, self._table_store
+                cte,
+                source_table,
+                cte_target,
+                self._table_store,
+                struct_override=struct_override,
             )
 
         unnests = set()
@@ -244,7 +259,9 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
             if subqueries:
                 for subquery in subqueries:
                     # parse the subquery
-                    self._process_subquery(subquery, parsed_expression)
+                    self._process_subquery(
+                        subquery, parsed_expression, struct_override=struct_override
+                    )
 
             elif isinstance(join.this, Unnest):
                 # the table is stored in a column and alias will be the alias_column_names
@@ -287,7 +304,9 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
             )
         elif isinstance(source, Subquery):
             # parse the subquery
-            self._process_subquery(source, parsed_expression)
+            self._process_subquery(
+                source, parsed_expression, struct_override=struct_override
+            )
 
         if source_table is None:
             source_table = self._get_or_create_source_table(f"expr{index:03}")
@@ -326,6 +345,7 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
             source_table,
             target=parsed_expression.target,
             table_store=self._table_store,
+            struct_override=struct_override,
         )
 
         return parsed_expression
@@ -378,6 +398,7 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
         sql: str,
         dialect: Optional[DialectType] = None,
         pre_transform: Optional[Callable[[str], str]] = None,
+        struct_override: Optional[dict[str, List[str]]] = None,
     ):
         """Extract the lineage information from the given SQL query.
 
@@ -393,6 +414,8 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
                 that takes a SQL string as input and returns a transformed SQL string.
                 This can be used to preprocess the SQL statement before parsing.
                 If not provided, no transformation is applied.
+            struct_override (Optional[dict[str, List[str]]]): A dictionary that can be used to override
+                the structure of the parsed expressions, allowing for custom handling of specific SQL constructs.
 
         Returns:
             ParsedResult: An object containing the extracted lineage information.
@@ -402,6 +425,7 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
             [sql],
             dialect=dialect,
             pre_transform=pre_transform,
+            struct_override=struct_override,
         )
 
     def extract_lineages(
@@ -409,6 +433,7 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
         sqls: List[str],
         dialect: Optional[DialectType] = None,
         pre_transform: Optional[Callable[[str], str]] = None,
+        struct_override: Optional[dict[str, List[str]]] = None,
     ):
         """Extract lineage information from a list of SQL statements.
 
@@ -424,6 +449,8 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
                 that takes a SQL string as input and returns a transformed SQL string.
                 This can be used to preprocess the SQL statements before parsing.
                 If not provided, no transformation is applied.
+            struct_override (Optional[dict[str, List[str]]]): A dictionary that can be used to override
+                the structure of the parsed expressions, allowing for custom handling of specific SQL constructs.
 
         Returns:
             ParsedResult: An object containing the extracted lineage information.
@@ -440,7 +467,11 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
                     if expression is None:
                         continue
 
-                    result.add(self._parse_expression(expression, i))
+                    result.add(
+                        self._parse_expression(
+                            expression, i, struct_override=struct_override
+                        )
+                    )
 
             except sqlglot.errors.ParseError as error:
                 logger.error("Error parsing: %s", error)
