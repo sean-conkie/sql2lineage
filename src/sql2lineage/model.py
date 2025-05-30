@@ -13,10 +13,24 @@ from pydantic import (
     model_serializer,
 )
 from sqlglot import Expression
-from sqlglot.expressions import Alias, Column, Star, Struct
+from sqlglot.expressions import Alias, Column, From, Star, Struct
 
 from sql2lineage.types.model import ColumnLineage, DataColumn, DataTable, TableLineage
 from sql2lineage.utils import SimpleTupleStore
+
+
+class DummyParent:
+    """Dummy parent class for expressions without a parent."""
+
+    def find(self, o):  # pylint: disable=unused-argument
+        """Find method to avoid errors.
+
+        Dummy implementation that returns None.
+        """
+        return None
+
+
+DUMMY_PARENT = DummyParent()
 
 
 class ParsedExpression(BaseModel):
@@ -251,26 +265,48 @@ class ParsedExpression(BaseModel):
                             )
                         )
 
-            elif expression.find(Star):
-                # fund all columns in the source table(s)
-                for table in self.tables:
-                    if table.target.name == target.name:
-                        for column in list(self.columns):
-                            if (
-                                column.target.table
-                                and column.target.table.name == table.source.name
-                            ):
-                                target_column = DataColumn(
-                                    name=column.target.name, table=target
-                                )
+            # elif expression.find(Star):
+            elif isinstance(select, Star):
 
-                                self.columns.add(
-                                    ColumnLineage(
-                                        target=target_column,
-                                        source=column.target,
-                                        action="COPY",
-                                    )
-                                )
+                select_from = (
+                    select.find(From)
+                    or (select.parent or DUMMY_PARENT).find(From)
+                    or (select.parent_select or DUMMY_PARENT).find(From)
+                )
+                if select_from:
+                    # if the star is used in a FROM clause, we need to find the source table
+                    source_table = table_store.get(select_from.alias_or_name)
+
+                    # we need to find all columns in the source table
+                    self._get_star_columns(target, source_table)
+
+                else:
+                    raise ValueError(
+                        f"Unable to identify From clause for Star(*): {self.expression}."
+                    )
+
+    def _get_star_columns(
+        self,
+        target: DataTable,
+        source_table: DataTable | None = None,
+    ):
+        if source_table is None:
+            return
+
+        for column in list(self.columns):
+            if column.target.table and column.target.table.name == source_table.name:
+                if column.target.name == "*":
+                    self._get_star_columns(target, column.source.table)
+                else:
+                    target_column = DataColumn(name=column.target.name, table=target)
+
+                    self.columns.add(
+                        ColumnLineage(
+                            target=target_column,
+                            source=column.target,
+                            action="COPY",
+                        )
+                    )
 
 
 class ParsedResult(BaseModel):
