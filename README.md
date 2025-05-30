@@ -94,6 +94,163 @@ Neighbourhood:
   ↳ {'source': 'filtered_orders.order_id', 'target': 'big_orders.order_id', 'type': 'COLUMN', 'action': 'COPY'}
 ```
 
+### Pre Transform
+
+To allow for SQL strings to have pre-processing applied you can pass a callable to the `extract_lineage` and `extract_lineages` methods
+of the `SQLLineageParser`.
+
+This is intended to simplify applying transformations to the SQL strings. The callable should accept a `str` and return a transformed string.
+
+An example use case is where a SQL statement is preceeded by a BigQuery write disposition, this must be replaced with the correct DDL.
+
+A pre-transform function can be written:
+
+```python
+import re
+
+
+def preprocess(sql):
+    pattern = re.compile(r"(?P<object>(?:\w+)?\.?\w+\.\w+)\:(?P<action>\w+)\:")
+    matches = pattern.findall(sql)
+    for m in matches:
+        object_name, action = m
+        match action:
+            case "DELETE":
+                # used for truncate table & delete, DML not needed
+                sql = sql.replace(f"{object_name}:{action}:", "")
+            case "WRITE_APPEND":
+                # used for insert, DML needed
+                sql = sql.replace(
+                    f"{object_name}:{action}:", f"insert into {object_name}"
+                )
+            case "WRITE_TRUNCATE":
+                # used for insert overwrite, DML needed
+                sql = sql.replace(
+                    f"{object_name}:{action}:", f"create or replace table {object_name}"
+                )
+            case _:
+                # fallback
+                sql = sql.replace(f"{object_name}:{action}:", "")
+
+    return sql
+```
+
+When the `extract_lineage` method is called with our `preprocess` callable (`parser.extract_lineage(sql, pre_transform=preprocess)`)
+and the following SQL, the `pre_transform` callable will be called before parsing the SQL string.
+
+Input
+
+```sql
+WITH orders_with_tax AS (
+    SELECT
+        order_id,
+        customer_id,
+        order_total * 1.2 AS total_with_tax
+    FROM raw.orders
+),
+filtered_orders AS (
+    SELECT
+        order_id,
+        customer_id,
+        total_with_tax
+    FROM orders_with_tax
+)
+
+orders_dataset.big_orders:WRITE_TRUNCATE:
+SELECT * FROM filtered_orders;
+
+```
+
+Output
+
+```sql
+WITH orders_with_tax AS (
+    SELECT
+        order_id,
+        customer_id,
+        order_total * 1.2 AS total_with_tax
+    FROM raw.orders
+),
+filtered_orders AS (
+    SELECT
+        order_id,
+        customer_id,
+        total_with_tax
+    FROM orders_with_tax
+)
+
+create or replace table orders_dataset.big_orders
+SELECT * FROM filtered_orders;
+
+```
+
+## Structs
+
+When a struct is created in a statement, for example using `struct()`, the lineage will be maintained. However, if the struct is selected from an existing table, to maintain full lineage a `struct_override` must be provided.
+
+Given the following SQL:
+
+```sql
+
+create or replace table customers
+select c.id,
+       c.name,
+       struct(
+        a.address_line_1,
+        a.address_line_2,
+        a.city,
+        a.zip
+       ) address
+  from customer_raw c
+  join customer_address a
+    on c.id = a.customer_id
+;
+
+select c.id,
+       c.name,
+       c.address
+  from customers
+;
+
+```
+
+### Without Override
+
+Without the override the lineage for the final statement would only include `customers.address`:
+
+```text
+customers.address --> expr0001.address [type: COLUMN]
+```
+
+### With Override
+
+With the override the lineage for the final statement will include the columns which form the struct `customers.address`:
+
+```text
+customers.address_line_1 --> expr0001.address_line_1 [type: COLUMN]
+customers.address_line_2 --> expr0001.address_line_2 [type: COLUMN]
+customers.city --> expr0001.city [type: COLUMN]
+customers.zip --> expr0001.zip [type: COLUMN]
+```
+
+By providing the override we also ensure the unbroken lineage back to the source table `customer_address`.
+
+### Providing an Override
+
+The override should be a dictionary where the key value is the fully qualified name of the source struct, the value is
+a list of the field names contained within the struct:
+
+```python
+{
+    "customers.address": [
+        "address_line_1",
+        "address_line_2",
+        "city",
+        "zip",
+    ]
+}
+```
+
 ## Bugs/Requests
 
 Please use the [GitHub Issue Tracker](https://github.com/sean-conkie/sql2lineage/issues) to submit bugs or requests.
