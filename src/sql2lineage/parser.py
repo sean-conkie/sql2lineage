@@ -8,11 +8,12 @@ import asyncio
 import logging
 from os import PathLike
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Sequence, Set, TypeAlias
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, TypeAlias
 
 import sqlglot
 import sqlglot.errors
 from anyio import open_file
+from pydantic import ValidationError
 from sqlglot.dialects.dialect import DialectType
 from sqlglot.expressions import (
     CTE,
@@ -497,11 +498,6 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
             table_store=self._table_store,
         )
 
-        # # add the target columns to the schema
-        # for column in parsed_expression.columns:
-        #     if column.target.table and column.target.table.type == "TABLE":
-        #         self._schema[column.target.table.name].add_if(column.target.name)
-
         return parsed_expression
 
     def _add_table_to_expression(
@@ -583,55 +579,17 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
         sqls: List[str],
         dialect: Optional[DialectType] = None,
         pre_transform: Optional[Callable[[str], str]] = None,
+        schema: Optional[dict[str, Any] | Schema] = None,
     ):
-        """Extract lineage information from a list of SQL statements.
 
-        This method parses the provided SQL statements and extracts lineage
-        information such as table dependencies and column mappings. The lineage
-        information is aggregated into a `ParsedResult` object.
-
-        Args:
-            sqls (List[str]): A list of SQL statements to be parsed.
-            dialect (Optional[DialectType]): The SQL dialect to use for parsing.
-                If not provided, the default dialect of the parser is used.
-            pre_transform (Optional[Callable[[str], str]]): A callable function
-                that takes a SQL string as input and returns a transformed SQL string.
-                This can be used to preprocess the SQL statements before parsing.
-                If not provided, no transformation is applied.
-
-        Returns:
-            ParsedResult: An object containing the extracted lineage information.
-
-        """
-        result = ParsedResult()
-        for sql in sqls:
-            if pre_transform:
-                sql = pre_transform(sql)
-            try:
-                parsed = sqlglot.parse(sql, read=dialect or self._dialect)
-
-                for i, expression in enumerate(parsed):
-                    if expression is None:
-                        continue
-
-                    result.add(
-                        self._parse_expression(
-                            expression,
-                            i,
-                        )
-                    )
-
-            except sqlglot.errors.ParseError as error:
-                logger.error("Error parsing: %s", error)
-                continue
-        return result
-
-    def exp(
-        self,
-        sqls: List[str],
-        dialect: Optional[DialectType] = None,
-        pre_transform: Optional[Callable[[str], str]] = None,
-    ):
+        if schema is not None:
+            if isinstance(schema, Schema):
+                self._schema = schema
+            else:
+                try:
+                    self._schema = Schema.model_validate(schema)
+                except ValidationError as error:
+                    logger.error("Error validating schema: %s", error)
 
         result = ParsedResult()
         expressions = []

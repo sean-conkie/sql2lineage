@@ -2,7 +2,7 @@
 
 # pylint: disable=no-member
 
-from typing import Optional
+from typing import Optional, TypeVar, overload
 
 from pydantic import (
     BaseModel,
@@ -174,6 +174,8 @@ class ColumnLineage(BaseModel):
 
 # region schema
 
+STRUCT_COLUMN_TYPES = {"STRUCT", "RECORD"}
+
 
 class SchemaColumn(BaseModel):
     """Schema column information."""
@@ -280,6 +282,10 @@ class SchemaTable(DataTable):
         raise KeyError(f"Column '{column}' not found in table '{self.name}'.")
 
 
+# Define two type variables for the key and value.
+D = TypeVar("D")
+
+
 class Schema(BaseModel):
     """Schema information."""
 
@@ -342,6 +348,60 @@ class Schema(BaseModel):
         if table.name not in self:
             self.tables.append(table)
 
+    def add_table_column(self, table: str | SchemaTable, column: str | SchemaColumn):
+        """Add a table and its columns to the collection if not already present.
+
+        Args:
+            table (str | SchemaTable): The name of the table as a string or a SchemaTable object.
+            column (str | SchemaColumn): The column name as a string or a SchemaColumn object to add to the table.
+
+        Notes:
+            - If the table does not exist in the collection, it will be added.
+            - The specified columns will be added to the table using the `add_if` method of the SchemaTable.
+
+        """
+        # if column is an empty string or * do not add it
+        if (
+            isinstance(column, str)
+            and (not column or column == "*")
+            or (not isinstance(column, str) and column.name == "*")
+        ):
+            return
+
+        if table not in self:
+            self.add(table)
+
+        table_name = table if isinstance(table, str) else table.name
+        schema_table = self[table_name]
+        schema_table.add_if(column)
+
+    @overload
+    def get(self, table_name: str, default: D) -> SchemaTable | D: ...
+
+    @overload
+    def get(self, table_name: str) -> SchemaTable | None: ...
+
+    def get(
+        self, table_name: str, default: Optional[D] = None
+    ) -> SchemaTable | D | None:
+        """Retrieve a table from the collection by its name.
+
+        Args:
+            table_name (str): The name of the table to retrieve.
+            default (Optional[D], optional): The value to return if the table is not found.
+                Defaults to None.
+
+        Returns:
+            SchemaTable | D | None: The table with the specified name if found; otherwise, returns
+                the provided default value.
+
+        """
+        for table in self.tables:
+            if table.name == table_name:
+                return table
+
+        return default
+
     def is_struct(self, table: str, column: str) -> bool:
         """Check if a column is a struct type in the schema.
 
@@ -357,9 +417,9 @@ class Schema(BaseModel):
             raise KeyError(f"Table '{table}' not found in schema.")
         schema_table = self[table]
         if column not in schema_table:
-            raise KeyError(f"Column '{column}' not found in table '{table}'.")
+            return False
         column_info = schema_table[column]
-        return column_info.type.lower() == "struct"
+        return column_info.type in STRUCT_COLUMN_TYPES
 
 
 # endregion schema

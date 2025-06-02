@@ -18,11 +18,13 @@ from sqlglot.dialects.dialect import DialectType
 from sqlglot.expressions import Alias, Column, From, Star, Struct
 
 from sql2lineage.types.model import (
+    STRUCT_COLUMN_TYPES,
     ColumnLineage,
     DataColumn,
     DataTable,
     Schema,
     SchemaColumn,
+    SchemaTable,
     TableLineage,
 )
 from sql2lineage.utils import SimpleTupleStore
@@ -158,7 +160,7 @@ class ParsedExpression(BaseModel):
             _source_column = column.name
 
         if _source_table and self._schema:
-            self._schema[_source_table.name].add_if(_source_column)
+            self._schema.add_table_column(_source_table.name, _source_column)
         return DataColumn(name=_source_column or "", table=_source_table)
 
     def _process_struct_override(
@@ -173,6 +175,10 @@ class ParsedExpression(BaseModel):
         # if the column is a struct, we need to burst it out
         assert source_column.table is not None, "Source column must have a table."
         source_table = source_column.table
+
+        if source_table.name not in self._schema:
+            return None
+
         column = self._schema[source_table.name].get_column(source_column.name)
         fields = column.fields or []
         to_add = []
@@ -244,7 +250,7 @@ class ParsedExpression(BaseModel):
         if self._schema:
             if target.name not in self._schema:
                 self._schema.add(target.name)
-            self._schema[target.name].add_if(schema_column)
+            self._schema.add_table_column(target.name, schema_column)
 
     def _add_columns(
         self,
@@ -263,15 +269,13 @@ class ParsedExpression(BaseModel):
                 if target.table is None:
                     continue
 
-                if target.table.name not in self._schema:
-                    self._schema.add(target.table.name)
-
-                self._schema[target.table.name].add_if(
+                self._schema.add_table_column(
+                    target.table.name,
                     SchemaColumn(
                         name=target.name,
                         type="SIMPLE",
                         fields=None,
-                    )
+                    ),
                 )
 
     def _check_struct(self, source_column: DataColumn) -> bool:
@@ -436,9 +440,11 @@ class ParsedExpression(BaseModel):
 
         # check the schema for columns from other tables
         if self._schema:
-            for column in self._schema[source_table.name].columns:
+            for column in self._schema.get(
+                source_table.name, SchemaTable(name="default", type="NONE")
+            ).columns:
 
-                if column.type == "STRUCT":
+                if column.type in STRUCT_COLUMN_TYPES:
                     # if the column is a struct, we need to burst it out
                     fields = column.fields or []
                     to_add = []
