@@ -170,3 +170,196 @@ class ColumnLineage(BaseModel):
         attrs["source"] = self.source.to_str
         attrs["target"] = self.target.to_str
         return LineageNode.model_validate(attrs)
+
+
+# region schema
+
+
+class SchemaColumn(BaseModel):
+    """Schema column information."""
+
+    name: str = Field(..., description="The name of the column.")
+    type: str = Field(..., description="The type of the column.")
+    fields: Optional[list["SchemaColumn"]] = Field(
+        None, description="The fields of the column if it is a complex type."
+    )
+
+
+class SchemaTable(DataTable):
+    """Schema table information."""
+
+    columns: list[SchemaColumn] = Field(
+        description="The columns of the table.", default_factory=list
+    )
+
+    def __contains__(self, item: str | SchemaColumn) -> bool:
+        """Check if the table contains a column with the given name."""
+        if isinstance(item, str):
+            return any(column.name == item for column in self.columns)
+        return any(column.name == item.name for column in self.columns)
+
+    def __getitem__(self, item: str) -> SchemaColumn:
+        """Get a column by its name."""
+        for column in self.columns:
+            if column.name == item:
+                return column
+        raise KeyError(f"Column '{item}' not found in table '{self.name}'.")
+
+    def __setitem__(self, key: str, value: SchemaColumn) -> None:
+        """Set a column in the table by its name."""
+        if key in self:
+            raise ValueError(f"Column '{key}' already exists in table '{self.name}'.")
+        self.columns.append(value)
+
+    def add(
+        self,
+        column: str | SchemaColumn,
+        type: Optional[str] = None,  # pylint: disable=redefined-builtin
+    ) -> None:
+        """Add a column to the table.
+
+        If a string is provided, it is converted to a SchemaColumn with type "STRING".
+        Raises a ValueError if a column with the same name already exists in the table.
+
+        Args:
+            column (str | SchemaColumn): The column to add, either as a name (str) or a SchemaColumn
+                instance.
+            type (Optional[str]): The type of the column. If not provided, defaults to "STRING".
+
+        Raises:
+            ValueError: If a column with the same name already exists in the table.
+
+        """
+        if isinstance(column, str):
+            column = SchemaColumn(name=column, type=type or "STRING", fields=None)
+
+        if column.name in self:
+            raise ValueError(
+                f"Column '{column.name}' already exists in table '{self.name}'."
+            )
+        self.columns.append(column)
+
+    def add_if(
+        self,
+        column: str | SchemaColumn,
+        type: Optional[str] = None,  # pylint: disable=redefined-builtin
+    ) -> None:
+        """Add a column to the table if it does not already exist.
+
+        Args:
+            column (str | SchemaColumn): The column to add, either as a string (column name) or a
+                SchemaColumn instance.
+            type (Optional[str]): The type of the column. If not provided, defaults to "STRING".
+
+        Returns:
+            None
+
+        """
+        if isinstance(column, str):
+            column = SchemaColumn(name=column, type=type or "STRING", fields=None)
+
+        if column.name not in self:
+            self.columns.append(column)
+
+    def get_column(self, column: str) -> SchemaColumn:
+        """Get a column by its name.
+
+        Args:
+            column (str): The name of the column to retrieve.
+
+        Returns:
+            SchemaColumn: The column with the specified name.
+
+        Raises:
+            KeyError: If the column does not exist in the table.
+
+        """
+        for col in self.columns:
+            if col.name == column:
+                return col
+        raise KeyError(f"Column '{column}' not found in table '{self.name}'.")
+
+
+class Schema(BaseModel):
+    """Schema information."""
+
+    tables: list[SchemaTable] = Field(
+        description="The tables in the schema.", default_factory=list
+    )
+
+    def __contains__(self, item: str | SchemaTable) -> bool:
+        """Check if the schema contains a table with the given name."""
+        if isinstance(item, str):
+            return any(table.name == item for table in self.tables)
+        return any(table.name == item.name for table in self.tables)
+
+    def __getitem__(self, item: str) -> SchemaTable:
+        """Get a table by its name."""
+        for table in self.tables:
+            if table.name == item:
+                return table
+        raise KeyError(f"Table '{item}' not found in schema.")
+
+    def __setitem__(self, key: str, value: SchemaTable) -> None:
+        """Set a table in the schema by its name."""
+        if key in self:
+            raise ValueError(f"Table '{key}' already exists in the schema.")
+        self.tables.append(value)
+
+    def add(self, table: str | SchemaTable) -> None:
+        """Add a table to the schema.
+
+        If a string is provided, it is converted to a SchemaTable with type "TABLE".
+        Raises a ValueError if a table with the same name already exists in the schema.
+
+        Args:
+            table (str | SchemaTable): The table to add, either as a name (str) or a SchemaTable instance.
+
+        Raises:
+            ValueError: If a table with the same name already exists in the schema.
+
+        """
+        if isinstance(table, str):
+            table = SchemaTable(name=table, type="TABLE")
+
+        if table.name in self:
+            raise ValueError(f"Table '{table.name}' already exists in the schema.")
+        self.tables.append(table)
+
+    def add_if(self, table: str | SchemaTable) -> None:
+        """Add a table to the collection if it does not already exist.
+
+        Args:
+            table (str | SchemaTable): The table to add, either as a string (table name) or a SchemaTable instance.
+
+        Returns:
+            None
+
+        """
+        if isinstance(table, str):
+            table = SchemaTable(name=table, type="TABLE")
+
+        if table.name not in self:
+            self.tables.append(table)
+
+    def is_struct(self, table: str, column: str) -> bool:
+        """Check if a column is a struct type in the schema.
+
+        Args:
+            table (str): The name of the table to check.
+            column (str): The name of the column to check.
+
+        Returns:
+            bool: True if the column is a struct type, False otherwise.
+
+        """
+        if table not in self:
+            raise KeyError(f"Table '{table}' not found in schema.")
+        schema_table = self[table]
+        if column not in schema_table:
+            raise KeyError(f"Column '{column}' not found in table '{table}'.")
+        column_info = schema_table[column]
+        return column_info.type.lower() == "struct"
+
+
+# endregion schema

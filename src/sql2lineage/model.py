@@ -3,20 +3,33 @@
 # pylint: disable=no-member
 
 import re
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, Optional, Set, Tuple, TypeAlias
 
 from pydantic import (
     BaseModel,
+    ConfigDict,
     Field,
     PrivateAttr,
     computed_field,
     model_serializer,
 )
 from sqlglot import Expression
+from sqlglot.dialects.dialect import DialectType
 from sqlglot.expressions import Alias, Column, From, Star, Struct
 
-from sql2lineage.types.model import ColumnLineage, DataColumn, DataTable, TableLineage
+from sql2lineage.types.model import (
+    ColumnLineage,
+    DataColumn,
+    DataTable,
+    Schema,
+    SchemaColumn,
+    TableLineage,
+)
 from sql2lineage.utils import SimpleTupleStore
+
+SourceColumn: TypeAlias = DataColumn
+TargetColumn: TypeAlias = DataColumn
+ColumnAction: TypeAlias = str
 
 
 class DummyParent:
@@ -36,6 +49,10 @@ DUMMY_PARENT = DummyParent()
 class ParsedExpression(BaseModel):
     """Parsed expression information."""
 
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+    )
+
     target: DataTable = Field(..., description="The output table of the expression.")
 
     columns: set[ColumnLineage] = Field(
@@ -50,13 +67,27 @@ class ParsedExpression(BaseModel):
         default_factory=dict, description="The subqueries of the expression."
     )
 
-    expression: str = Field(
+    expression: Expression = Field(
         ...,
         description="The SQL expression.",
     )
 
+    dialect: DialectType = Field(
+        default="default",
+        description="The SQL dialect used for the expression.",
+    )
+
+    _schema: Optional[Schema] = PrivateAttr(
+        default=None,
+    )
+
     def __hash__(self):
-        return hash((self.target, self.columns, self.tables))
+        return hash((self.target, tuple(self.columns), tuple(self.tables)))
+
+    @property
+    def expression_str(self) -> str:
+        """Get the string representation of the expression."""
+        return self.expression.sql(pretty=True, dialect=self.dialect)
 
     @model_serializer
     def serialise_to_dict(self):
@@ -85,7 +116,7 @@ class ParsedExpression(BaseModel):
             "subqueries": {
                 key: value.serialise_to_dict() for key, value in self.subqueries.items()
             },
-            "expression": self.expression,
+            "expression": self.expression_str,
         }
 
     def _get_source_column(
@@ -126,58 +157,34 @@ class ParsedExpression(BaseModel):
             # if we still don't have a source column, use the column name
             _source_column = column.name
 
+        if _source_table and self._schema:
+            self._schema[_source_table.name].add_if(_source_column)
         return DataColumn(name=_source_column or "", table=_source_table)
 
     def _process_struct_override(
         self,
         source_column: DataColumn,
         target: DataTable,
-        struct_override: Dict[str, List[str]],
-    ) -> Dict[str, List[str]]:
-        """Process a struct column override by expanding the struct fields into individual columns.
+    ) -> None:
 
-        Maps the struct override from the source to the target table, and updates the struct
-        override mapping.
+        if self._schema is None:
+            return None
 
-        Args:
-            source_column (DataColumn): The source struct column to be overridden.
-            target (DataTable): The target table where the struct fields will be mapped.
-            struct_override (Dict[str, List[str]]): A mapping from column string representations
-                to their respective struct field names.
-
-        Returns:
-            Dict[str, List[str]]: The updated struct_override dictionary with the new struct column
-                mapping added if necessary.
-
-        """
-        struct_fields = struct_override[source_column.to_str]
-        source_columns = [
-            DataColumn(
-                table=source_column.table,
-                name=f"{source_column.name}.{field}",
+        # if the column is a struct, we need to burst it out
+        assert source_column.table is not None, "Source column must have a table."
+        source_table = source_column.table
+        column = self._schema[source_table.name].get_column(source_column.name)
+        fields = column.fields or []
+        to_add = []
+        for field in fields:
+            source_column = DataColumn(
+                name=f"{column.name}.{field.name}",
+                table=source_table,
             )
-            for field in struct_fields
-        ]
-        target_columns = [
-            DataColumn(table=target, name=f"{source_column.name}.{field}")
-            for field in struct_fields
-        ]
-        self._add_columns(
-            *[
-                (source_col, target_col, "COPY")
-                for source_col, target_col in zip(source_columns, target_columns)
-            ]
-        )
+            target_column = DataColumn(name=f"{column.name}.{field.name}", table=target)
+            to_add.append((source_column, target_column, "COPY"))
 
-        # add the new struct column to the override
-        new_struct_column = DataColumn(
-            table=target,
-            name=source_column.name,
-        )
-        if new_struct_column.to_str not in struct_override:
-            struct_override[new_struct_column.to_str] = struct_fields
-
-        return struct_override
+        self._add_columns(*to_add)
 
     def _process_struct(
         self,
@@ -193,7 +200,9 @@ class ParsedExpression(BaseModel):
             alias = expression.alias
         else:
             alias = f"{alias}.{expression.alias}"
-        # columns = expression.this.find_all(Column)
+
+        schema_column = SchemaColumn(name=alias, type="STRUCT", fields=[])
+
         for expr in expression.this.expressions:
 
             # check if the column is a struct
@@ -214,6 +223,17 @@ class ParsedExpression(BaseModel):
                 source_column = self._get_source_column(expr, source, table_store)
                 target_column = DataColumn(name=f"{alias}.{expr_name}", table=target)
 
+                if schema_column.fields is None:
+                    schema_column.fields = []
+
+                schema_column.fields.append(
+                    SchemaColumn(
+                        name=expr_name,
+                        type="SIMPLE",
+                        fields=None,
+                    )
+                )
+
                 self.columns.add(
                     ColumnLineage(
                         target=target_column,
@@ -221,10 +241,14 @@ class ParsedExpression(BaseModel):
                         action="COPY",
                     )
                 )
+        if self._schema:
+            if target.name not in self._schema:
+                self._schema.add(target.name)
+            self._schema[target.name].add_if(schema_column)
 
     def _add_columns(
         self,
-        *columns: Tuple[DataColumn, DataColumn, str],
+        *columns: Tuple[SourceColumn, TargetColumn, ColumnAction],
     ):
         for source, target, action in columns:
             self.columns.add(
@@ -235,13 +259,38 @@ class ParsedExpression(BaseModel):
                 )
             )
 
+            if self._schema:
+                if target.table is None:
+                    continue
+
+                if target.table.name not in self._schema:
+                    self._schema.add(target.table.name)
+
+                self._schema[target.table.name].add_if(
+                    SchemaColumn(
+                        name=target.name,
+                        type="SIMPLE",
+                        fields=None,
+                    )
+                )
+
+    def _check_struct(self, source_column: DataColumn) -> bool:
+        """Check if the source column is a struct."""
+        if not self._schema:
+            return False
+
+        if source_column.table and self._schema.is_struct(
+            source_column.table.name, source_column.name
+        ):
+            return True
+        return False
+
     def update_column_lineage(
         self,
         expression: Expression,
         source: DataTable,
         target: DataTable,
         table_store: SimpleTupleStore[str, DataTable],
-        struct_override: Optional[dict[str, List[str]]] = None,
     ):
         """
         Update the column lineage information based on the provided SQL expression.
@@ -256,9 +305,6 @@ class ParsedExpression(BaseModel):
             target (DataTable): The target table to which columns are mapped.
             table_store (SimpleTupleStore[str, DataTable]): A store containing mappings
                 of table names to DataTable objects.
-            struct_override (Optional[dict[str, List[str]]]): A dictionary that maps struct
-                column names to their respective field names. This is used to handle struct
-                columns and their overrides. If not provided, defaults to an empty dictionary.
 
         Returns:
             None
@@ -266,9 +312,6 @@ class ParsedExpression(BaseModel):
         """  # noqa: D212
         if not hasattr(expression, "selects"):
             return
-
-        if struct_override is None:
-            struct_override = {}
 
         for select in expression.selects:  # type: ignore
 
@@ -286,10 +329,8 @@ class ParsedExpression(BaseModel):
                 source_column = self._get_source_column(select, source, table_store)
 
                 # check if the column is in the struct override
-                if source_column.to_str in struct_override:
-                    struct_override = self._process_struct_override(
-                        source_column, target, struct_override
-                    )
+                if self._check_struct(source_column):
+                    self._process_struct_override(source_column, target)
                 else:
                     target_column = DataColumn(name=select.alias_or_name, table=target)
                     self._add_columns(
@@ -305,10 +346,8 @@ class ParsedExpression(BaseModel):
                     )
 
                     # check if the column is in the struct override
-                    if source_column.to_str in struct_override:
-                        struct_override = self._process_struct_override(
-                            source_column, target, struct_override
-                        )
+                    if self._check_struct(source_column):
+                        self._process_struct_override(source_column, target)
                     else:
                         target_column = DataColumn(
                             name=select.alias_or_name, table=target
@@ -328,10 +367,9 @@ class ParsedExpression(BaseModel):
                         source_column = self._get_source_column(
                             column, source, table_store
                         )
-                        if source_column.to_str in struct_override:
-                            struct_override = self._process_struct_override(
-                                source_column, target, struct_override
-                            )
+
+                        if self._check_struct(source_column):
+                            self._process_struct_override(source_column, target)
                         else:
 
                             pattern = re.compile(
@@ -380,6 +418,7 @@ class ParsedExpression(BaseModel):
         if source_table is None:
             return
 
+        # check the expression for CTE columns
         for column in list(self.columns):
             if column.target.table and column.target.table.name == source_table.name:
                 if column.target.name == "*":
@@ -387,11 +426,42 @@ class ParsedExpression(BaseModel):
                 else:
                     target_column = DataColumn(name=column.target.name, table=target)
 
-                    self.columns.add(
-                        ColumnLineage(
-                            target=target_column,
-                            source=column.target,
-                            action="COPY",
+                    self._add_columns(
+                        (
+                            column.target,
+                            target_column,
+                            "COPY",
+                        )
+                    )
+
+        # check the schema for columns from other tables
+        if self._schema:
+            for column in self._schema[source_table.name].columns:
+
+                if column.type == "STRUCT":
+                    # if the column is a struct, we need to burst it out
+                    fields = column.fields or []
+                    to_add = []
+                    for field in fields:
+                        source_column = DataColumn(
+                            name=f"{column.name}.{field.name}",
+                            table=source_table,
+                        )
+                        target_column = DataColumn(
+                            name=f"{column.name}.{field.name}", table=target
+                        )
+                        to_add.append((source_column, target_column, "COPY"))
+
+                    self._add_columns(*to_add)
+
+                else:
+                    target_column = DataColumn(name=column.name, table=target)
+
+                    self._add_columns(
+                        (
+                            DataColumn(name=column.name, table=source_table),
+                            target_column,
+                            "COPY",
                         )
                     )
 
@@ -407,6 +477,10 @@ class ParsedResult(BaseModel):
     )
     _tables: Set[TableLineage] = PrivateAttr(
         default_factory=set,
+    )
+
+    _schema: Optional[Schema] = PrivateAttr(
+        default=None,
     )
 
     @computed_field
