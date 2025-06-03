@@ -548,6 +548,7 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
         sql: str,
         dialect: Optional[DialectType] = None,
         pre_transform: Optional[Callable[[str], str]] = None,
+        schema: Optional[dict[str, Any] | Schema] = None,
     ):
         """Extract the lineage information from the given SQL query.
 
@@ -563,6 +564,10 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
                 that takes a SQL string as input and returns a transformed SQL string.
                 This can be used to preprocess the SQL statement before parsing.
                 If not provided, no transformation is applied.
+            schema (Optional[dict[str, Any] | Schema]): An optional schema object
+                or dictionary to validate and use for lineage extraction. If provided,
+                it will be used to update the internal schema representation with any
+                new tables found during the extraction process.
 
         Returns:
             ParsedResult: An object containing the extracted lineage information.
@@ -572,6 +577,7 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
             [sql],
             dialect=dialect,
             pre_transform=pre_transform,
+            schema=schema,
         )
 
     def extract_lineages(
@@ -581,7 +587,28 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
         pre_transform: Optional[Callable[[str], str]] = None,
         schema: Optional[dict[str, Any] | Schema] = None,
     ):
+        """Extract table lineage information from a list of SQL statements.
 
+        This method parses each SQL statement, optionally applies a pre-transform,
+        and extracts source and target tables to build a lineage graph. It also
+        updates the internal schema representation with any new tables found.
+
+        Args:
+            sqls (List[str]): A list of SQL statements to analyze.
+            dialect (Optional[DialectType], optional): The SQL dialect to use for parsing.
+                If not provided, uses the instance's default dialect.
+            pre_transform (Optional[Callable[[str], str]], optional): An optional function
+                to pre-process each SQL statement before parsing.
+            schema (Optional[dict[str, Any] | Schema], optional): An optional schema object
+                or dictionary to validate and use for lineage extraction.
+
+        Returns:
+            ParsedResult: An object containing the parsed lineage information for all SQL statements.
+
+        Raises:
+            None explicitly, but logs errors for schema validation and SQL parsing failures.
+
+        """
         if schema is not None:
             if isinstance(schema, Schema):
                 self._schema = schema
@@ -672,9 +699,16 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
 
         # If we didn’t visit all nodes, there is a cycle
         if len(ordered) < len(expressions):
-            raise ValueError(
-                "Cycle detected among SQL expressions → cannot resolve ordering"
+            # Everything not in `ordered` is part of (or reachable from) a cycle.
+            cycle_nodes = [expr for expr in expressions if expr not in ordered]
+            cycle_targets = [expr.target.name for expr in cycle_nodes]
+            logger.warning(
+                "Cycle detected among SQL expressions → cannot resolve ordering. Impacted targets: %s",
+                ", ".join(cycle_targets),
             )
+
+            ordered.extend(cycle_nodes)
+
         return ordered
 
     async def aextract_lineages_from_file(

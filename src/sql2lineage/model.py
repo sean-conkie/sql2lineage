@@ -167,6 +167,7 @@ class ParsedExpression(BaseModel):
         self,
         source_column: DataColumn,
         target: DataTable,
+        target_column_name: Optional[str] = None,
     ) -> None:
 
         if self._schema is None:
@@ -187,7 +188,9 @@ class ParsedExpression(BaseModel):
                 name=f"{column.name}.{field.name}",
                 table=source_table,
             )
-            target_column = DataColumn(name=f"{column.name}.{field.name}", table=target)
+            target_column = DataColumn(
+                name=f"{target_column_name or column.name}.{field.name}", table=target
+            )
             to_add.append((source_column, target_column, "COPY"))
 
         self._add_columns(*to_add)
@@ -373,7 +376,9 @@ class ParsedExpression(BaseModel):
                         )
 
                         if self._check_struct(source_column):
-                            self._process_struct_override(source_column, target)
+                            self._process_struct_override(
+                                source_column, target, select.alias_or_name
+                            )
                         else:
 
                             pattern = re.compile(
