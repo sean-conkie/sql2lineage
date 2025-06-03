@@ -2,6 +2,8 @@
 
 # pylint: disable=no-member
 import pytest
+import sqlglot
+from sqlglot import Expression
 
 from sql2lineage.model import (
     ColumnLineage,
@@ -13,6 +15,8 @@ from sql2lineage.model import (
 )
 from sql2lineage.utils import SimpleTupleStore
 
+EXPRESSION = sqlglot.parse("select current_timestamp", read="bigquery")[0]
+assert EXPRESSION is not None, "Failed to parse expression"
 PARSED_RESULT = ParsedResult()
 PARSED_RESULT.add(
     ParsedExpression(
@@ -37,8 +41,8 @@ PARSED_RESULT.add(
                 alias="alias",
             )
         },
-        expression="a + b",
-    )
+        expression=EXPRESSION,
+    )  # type: ignore
 )
 
 
@@ -71,10 +75,10 @@ class TestSerialisation:
                             alias="alias",
                         )
                     },
-                    expression="a + b",
-                ),
+                    expression=EXPRESSION,
+                ),  # type: ignore
                 {
-                    "expression": "a + b",
+                    "expression": EXPRESSION.sql(pretty=True),
                     "target": {
                         "name": "target",
                         "type": "TABLE",
@@ -126,7 +130,7 @@ class TestSerialisation:
                 {
                     "expressions": [
                         {
-                            "expression": "a + b",
+                            "expression": EXPRESSION.sql(pretty=True),
                             "target": {
                                 "name": "target",
                                 "type": "TABLE",
@@ -257,7 +261,7 @@ class TestParsedExpression:
         """Fixture for ParsedExpression."""
         yield ParsedExpression(  # type: ignore[assignment]
             target=DataTable(name="target", type="TABLE"),
-            expression="",
+            expression=EXPRESSION,
             tables={
                 TableLineage(
                     target=DataTable(name="target.table", type="TABLE"),
@@ -268,7 +272,7 @@ class TestParsedExpression:
             subqueries={
                 "subquery": ParsedExpression(
                     target=DataTable(name="subquery.table", type="TABLE"),
-                    expression="SELECT * FROM subquery.table",
+                    expression=EXPRESSION,
                     columns={
                         ColumnLineage(
                             target=DataColumn(
@@ -282,7 +286,7 @@ class TestParsedExpression:
                             action="COPY",
                         )
                     },
-                ),
+                ),  # type: ignore
             },
         )
 

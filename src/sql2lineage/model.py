@@ -74,8 +74,8 @@ class ParsedExpression(BaseModel):
         description="The SQL expression.",
     )
 
-    dialect: DialectType = Field(
-        default="default",
+    dialect: Optional[DialectType] = Field(
+        None,
         description="The SQL dialect used for the expression.",
     )
 
@@ -91,7 +91,7 @@ class ParsedExpression(BaseModel):
         """Get the string representation of the expression."""
         return self.expression.sql(pretty=True, dialect=self.dialect)
 
-    @model_serializer
+    @model_serializer(mode="plain")
     def serialise_to_dict(self):
         """Serialize the current object into a dictionary representation.
 
