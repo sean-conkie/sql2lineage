@@ -717,6 +717,7 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
         glob: Optional[str] = None,
         dialect: Optional[DialectType] = None,
         pre_transform: Optional[Callable[[str], str]] = None,
+        schema: Optional[dict[str, Any] | Schema] = None,
     ):
         """Asynchronously extract lineages from SQL files in a given directory.
 
@@ -730,6 +731,9 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
             dialect (Optional[DialectType], optional): The SQL dialect to use for parsing. Defaults to None.
             pre_transform (Optional[Callable[[str], str]], optional): A callable to pre-process the SQL content
                 before extracting lineages. Defaults to None.
+            schema (Optional[dict[str, Any] | Schema], optional): An optional schema object or dictionary to validate
+                and use for lineage extraction. If provided, it will be used to update the internal schema
+                representation with any new tables found during the extraction process.
 
         Returns:
             List[Lineage]: A list of extracted lineage objects.
@@ -758,6 +762,7 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
             [content for content in contents if content],
             dialect=dialect,
             pre_transform=pre_transform,
+            schema=schema,
         )
 
     def extract_lineages_from_file(
@@ -766,6 +771,7 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
         glob: Optional[str] = None,
         dialect: Optional[DialectType] = None,
         pre_transform: Optional[Callable[[str], str]] = None,
+        schema: Optional[dict[str, Any] | Schema] = None,
     ):
         """Extract lineage information from SQL files in a specified directory.
 
@@ -778,6 +784,9 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
             dialect (Optional[DialectType]): The SQL dialect to use for parsing. Defaults to None.
             pre_transform (Optional[Callable[[str], str]]): A callable to preprocess the SQL content
                 before extracting lineage. Defaults to None.
+            schema (Optional[dict[str, Any] | Schema]): An optional schema object or dictionary to validate
+                and use for lineage extraction. If provided, it will be used to update the internal schema
+                representation with any new tables found during the extraction process.
 
         Returns:
             List[Lineage]: A list of lineage objects extracted from the SQL files.
@@ -795,4 +804,5 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
             [content for content in contents if content],
             dialect=dialect,
             pre_transform=pre_transform,
+            schema=schema,
         )
