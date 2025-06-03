@@ -15,7 +15,7 @@ from pydantic import (
 )
 from sqlglot import Expression
 from sqlglot.dialects.dialect import DialectType
-from sqlglot.expressions import Alias, Column, From, Star, Struct
+from sqlglot.expressions import Alias, Column, From, PropertyEQ, Star, Struct
 
 from sql2lineage.types.model import (
     STRUCT_COLUMN_TYPES,
@@ -206,16 +206,23 @@ class ParsedExpression(BaseModel):
 
         # handle struct columns - burst them out
         if alias is None:
-            alias = expression.alias
-        else:
-            alias = f"{alias}.{expression.alias}"
+            alias = expression.alias_or_name
+        elif expression.alias_or_name:
+            alias = f"{alias}.{expression.alias_or_name}"
 
         schema_column = SchemaColumn(name=alias, type="STRUCT", fields=[])
 
-        for expr in expression.this.expressions:
+        expressions = (
+            expression.this.expressions if expression.this else expression.expressions
+        )
+        if not expressions:
+            # if the expression has no sub-expressions, we can use the alias directly
+            expressions = [expression.expression]
+
+        for expr in expressions:
 
             # check if the column is a struct
-            if isinstance(expr, Struct):
+            if isinstance(expr, (Struct, PropertyEQ)):
                 self._process_struct(
                     expr,
                     source,
@@ -227,10 +234,17 @@ class ParsedExpression(BaseModel):
 
                 expr_name = expr.alias_or_name or expr.name
                 if not isinstance(expr, Column):
-                    expr = expr.expression
+                    if isinstance(expr.this, Column):
+                        expr = expr.this
+                    elif isinstance(expr.expression, Column):
+                        expr = expr.expression
+                    else:
+                        expr = expr.find(Column)
 
                 source_column = self._get_source_column(expr, source, table_store)
-                target_column = DataColumn(name=f"{alias}.{expr_name}", table=target)
+                target_column = DataColumn(
+                    name=f"{alias}.{expr_name}".strip("."), table=target
+                )
 
                 if schema_column.fields is None:
                     schema_column.fields = []

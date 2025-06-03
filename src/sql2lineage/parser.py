@@ -18,6 +18,7 @@ from sqlglot.dialects.dialect import DialectType
 from sqlglot.expressions import (
     CTE,
     Column,
+    Command,
     Expression,
     From,
     Identifier,
@@ -85,7 +86,7 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
             if hasattr(expression.this, "parts"):
 
                 return self._join_parts(expression.this.parts)
-            else:
+            elif not isinstance(expression.this, str):
 
                 return expression.this.name
 
@@ -627,7 +628,8 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
                 parsed = sqlglot.parse(sql, read=dialect or self._dialect)
 
                 for i, expression in enumerate(parsed):
-                    if expression is None:
+                    if expression is None or isinstance(expression, Command):
+                        # skip empty expressions or commands
                         continue
 
                     expr = self._extract_tables_from_expression(expression, i)
@@ -639,7 +641,7 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
                     if expr.target.type == "TABLE":
                         self._schema.add_if(expr.target.name)
 
-            except sqlglot.errors.ParseError as error:
+            except (sqlglot.errors.ParseError, sqlglot.errors.TokenError) as error:
                 logger.error("Error parsing: %s", error)
                 continue
 
