@@ -23,7 +23,6 @@ from sql2lineage.types.model import (
     DataColumn,
     DataTable,
     Schema,
-    SchemaColumn,
     SchemaTable,
     TableLineage,
 )
@@ -160,7 +159,7 @@ class ParsedExpression(BaseModel):
             _source_column = column.name
 
         if _source_table and self._schema:
-            self._schema.add_table_column(_source_table.name, _source_column)
+            self._schema.add_table(_source_table.name, _source_column)
         return DataColumn(name=_source_column or "", table=_source_table)
 
     def _process_struct_override(
@@ -180,7 +179,9 @@ class ParsedExpression(BaseModel):
         if source_table.name not in self._schema:
             return None
 
-        column = self._schema[source_table.name].get_column(source_column.name)
+        column = self._schema.get_column(source_table.name, source_column.name)
+        if column is None:
+            return None
         fields = column.fields or []
         to_add = []
         for field in fields:
@@ -209,8 +210,6 @@ class ParsedExpression(BaseModel):
             alias = expression.alias_or_name
         elif expression.alias_or_name:
             alias = f"{alias}.{expression.alias_or_name}"
-
-        schema_column = SchemaColumn(name=alias, type="STRUCT", fields=[])
 
         expressions = (
             expression.this.expressions if expression.this else expression.expressions
@@ -246,17 +245,6 @@ class ParsedExpression(BaseModel):
                     name=f"{alias}.{expr_name}".strip("."), table=target
                 )
 
-                if schema_column.fields is None:
-                    schema_column.fields = []
-
-                schema_column.fields.append(
-                    SchemaColumn(
-                        name=expr_name,
-                        type="SIMPLE",
-                        fields=None,
-                    )
-                )
-
                 self.columns.add(
                     ColumnLineage(
                         target=target_column,
@@ -264,10 +252,10 @@ class ParsedExpression(BaseModel):
                         action="COPY",
                     )
                 )
-        if self._schema:
-            if target.name not in self._schema:
-                self._schema.add(target.name)
-            self._schema.add_table_column(target.name, schema_column)
+
+                if self._schema:
+
+                    self._schema.add_column(target.name, target_column.name)
 
     def _add_columns(
         self,
@@ -286,14 +274,7 @@ class ParsedExpression(BaseModel):
                 if target.table is None:
                     continue
 
-                self._schema.add_table_column(
-                    target.table.name,
-                    SchemaColumn(
-                        name=target.name,
-                        type="SIMPLE",
-                        fields=None,
-                    ),
-                )
+                self._schema.add_column(target.table.name, target.name)
 
     def _check_struct(self, source_column: DataColumn) -> bool:
         """Check if the source column is a struct."""
@@ -460,7 +441,7 @@ class ParsedExpression(BaseModel):
         # check the schema for columns from other tables
         if self._schema:
             for column in self._schema.get(
-                source_table.name, SchemaTable(name="default", type="NONE")
+                source_table.name, SchemaTable(name="default")
             ).columns:
 
                 if column.type in STRUCT_COLUMN_TYPES:

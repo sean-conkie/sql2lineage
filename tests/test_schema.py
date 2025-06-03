@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-# Adjust the import path as needed; assuming the code is in schema.py
+# Adjust import paths as needed; assuming the refactored code is in schema.py
 from sql2lineage.types.model import (
     STRUCT_COLUMN_TYPES,
     Schema,
@@ -10,111 +10,76 @@ from sql2lineage.types.model import (
 )
 
 
+class TestSchemaColumn:
+    def test_type_simple_and_record(self):
+        # When fields is None, type should be "SIMPLE"
+        col_simple = SchemaColumn(name="simple_col")
+        assert col_simple.fields is None
+        assert col_simple.type == "SIMPLE"
+
+        # When fields is an empty list or non-empty list, type should be "RECORD"
+        col_record_empty = SchemaColumn(name="rec_col", fields=[])
+        assert isinstance(col_record_empty.fields, list)
+        assert col_record_empty.type == "RECORD"
+
+        nested_fields = [SchemaColumn(name="nested", fields=None)]
+        col_record = SchemaColumn(name="parent", fields=nested_fields)
+        assert col_record.type == "RECORD"
+        # Ensure nested child still reports SIMPLE
+        child = col_record.fields[0]
+        assert child.fields is None
+        assert child.type == "SIMPLE"
+
+    def test_validation_requires_name(self):
+        # Missing name should raise ValidationError
+        with pytest.raises(ValidationError):
+            SchemaColumn()
+
+
 class TestSchemaTable:
     @pytest.fixture
     def empty_table(self):
-        return SchemaTable(name="test_table", type="TABLE")
+        return SchemaTable(name="test_table")
 
     @pytest.fixture
     def populated_table(self):
-        tbl = SchemaTable(name="my_table", type="TABLE")
+        tbl = SchemaTable(name="my_table")
         tbl.columns = [
-            SchemaColumn(name="col1", type="STRING"),  # type: ignore
-            SchemaColumn(name="col2", type="INTEGER"),  # type: ignore
+            SchemaColumn(name="col1"),
+            SchemaColumn(name="col2", fields=[SchemaColumn(name="inner")]),
         ]
         return tbl
 
     def test_contains_by_name_and_column_obj(self, populated_table):
-        # Test __contains__ using column name
+        # __contains__ using column name
         assert "col1" in populated_table
         assert "col2" in populated_table
-        assert "nonexistent" not in populated_table
+        assert "nope" not in populated_table
 
-        # Test __contains__ using SchemaColumn instance
-        col = SchemaColumn(name="col1", type="STRING")  # type: ignore
+        # __contains__ using SchemaColumn instance
+        col = SchemaColumn(name="col1")
         assert col in populated_table
-        col_missing = SchemaColumn(name="colX", type="STRING")  # type: ignore
-        assert col_missing not in populated_table
+        missing = SchemaColumn(name="absent")
+        assert missing not in populated_table
 
     def test_getitem_success_and_keyerror(self, populated_table):
-        # __getitem__ returns the correct SchemaColumn
         col1 = populated_table["col1"]
         assert isinstance(col1, SchemaColumn)
         assert col1.name == "col1"
-        assert col1.type == "STRING"
 
-        # Accessing nonexistent column raises KeyError
         with pytest.raises(KeyError) as excinfo:
-            _ = populated_table["nope"]
-        assert "Column 'nope' not found in table 'my_table'." in str(excinfo.value)
+            _ = populated_table["no_col"]
+        assert "Column 'no_col' not found in table 'my_table'." in str(excinfo.value)
 
     def test_setitem_add_new_and_error_on_duplicate(self, empty_table):
-        new_col = SchemaColumn(name="newcol", type="STRING")  # type: ignore
-        # Add via __setitem__
+        new_col = SchemaColumn(name="newcol")
         empty_table["newcol"] = new_col
         assert "newcol" in empty_table
         assert empty_table["newcol"] is new_col
 
-        # Setting the same key again raises ValueError
         with pytest.raises(ValueError) as excinfo:
-            empty_table["newcol"] = SchemaColumn(name="newcol", type="STRING")  # type: ignore
+            empty_table["newcol"] = SchemaColumn(name="newcol")
         assert "Column 'newcol' already exists in table 'test_table'." in str(
-            excinfo.value
-        )
-
-    def test_add_with_string_and_column_obj(self, empty_table):
-        # Add by providing string (defaults to type STRING)
-        empty_table.add("a_string_col")
-        assert "a_string_col" in empty_table
-        added = empty_table["a_string_col"]
-        assert added.name == "a_string_col"
-        assert added.type == "STRING"
-
-        # Add by providing string and explicit type
-        empty_table.add("int_col", type="INTEGER")
-        assert "int_col" in empty_table
-        int_col = empty_table["int_col"]
-        assert int_col.type == "INTEGER"
-
-        # Add by providing a SchemaColumn instance
-        custom_col = SchemaColumn(name="custom", type="FLOAT")
-        empty_table.add(custom_col)
-        assert "custom" in empty_table
-        assert empty_table["custom"].type == "FLOAT"
-
-        # Adding a duplicate by name (whether string or object) raises ValueError
-        with pytest.raises(ValueError) as excinfo:
-            empty_table.add("custom")
-        assert "Column 'custom' already exists in table 'test_table'." in str(
-            excinfo.value
-        )
-
-        with pytest.raises(ValueError) as excinfo2:
-            empty_table.add(SchemaColumn(name="int_col", type="INTEGER"))
-        assert "Column 'int_col' already exists in table 'test_table'." in str(
-            excinfo2.value
-        )
-
-    def test_add_if_only_adds_nonexistent(self, populated_table):
-        # 'col1' already present, so add_if does nothing
-        before_count = len(populated_table.columns)
-        populated_table.add_if("col1", type="STRING")
-        assert len(populated_table.columns) == before_count
-
-        # Add a new column via add_if
-        populated_table.add_if("newcol", type="BOOLEAN")
-        assert "newcol" in populated_table
-        assert populated_table["newcol"].type == "BOOLEAN"
-
-    def test_get_column_success_and_keyerror(self, populated_table):
-        col2 = populated_table.get_column("col2")
-        assert isinstance(col2, SchemaColumn)
-        assert col2.name == "col2"
-        assert col2.type == "INTEGER"
-
-        with pytest.raises(KeyError) as excinfo:
-            populated_table.get_column("does_not_exist")
-        assert "Column 'does_not_exist' not found in table 'my_table'." in str(
             excinfo.value
         )
 
@@ -127,20 +92,17 @@ class TestSchema:
     @pytest.fixture
     def populated_schema(self):
         sch = Schema()
-        tbl1 = SchemaTable(name="t1", type="TABLE")
+        # Create table t1 with a simple and a record column
+        tbl1 = SchemaTable(name="t1")
         tbl1.columns = [
-            SchemaColumn(name="a", type="STRING"),
+            SchemaColumn(name="a"),
             SchemaColumn(
-                name="b",
-                type="STRUCT",
-                fields=[
-                    SchemaColumn(name="b1", type="INTEGER"),
-                    SchemaColumn(name="b2", type="STRING"),
-                ],
+                name="b", fields=[SchemaColumn(name="b1"), SchemaColumn(name="b2")]
             ),
         ]
-        tbl2 = SchemaTable(name="t2", type="TABLE")
-        tbl2.columns = [SchemaColumn(name="x", type="BOOLEAN")]
+        # Create table t2 with one column
+        tbl2 = SchemaTable(name="t2")
+        tbl2.columns = [SchemaColumn(name="x")]
         sch.tables = [tbl1, tbl2]
         return sch
 
@@ -149,11 +111,10 @@ class TestSchema:
         assert "t2" in populated_schema
         assert "no_table" not in populated_schema
 
-        # Using SchemaTable instance
-        tbl1_copy = SchemaTable(name="t1", type="TABLE")
+        tbl1_copy = SchemaTable(name="t1")
         assert tbl1_copy in populated_schema
-        tbl_missing = SchemaTable(name="t3", type="TABLE")
-        assert tbl_missing not in populated_schema
+        missing_tbl = SchemaTable(name="t3")
+        assert missing_tbl not in populated_schema
 
     def test_getitem_success_and_keyerror(self, populated_schema):
         t1 = populated_schema["t1"]
@@ -165,128 +126,119 @@ class TestSchema:
         assert "Table 'nope' not found in schema." in str(excinfo.value)
 
     def test_setitem_add_new_and_error_on_duplicate(self, empty_schema):
-        tbl = SchemaTable(name="new_table", type="TABLE")
+        tbl = SchemaTable(name="new_table")
         empty_schema["new_table"] = tbl
         assert "new_table" in empty_schema
         assert empty_schema["new_table"] is tbl
 
-        # Setting duplicate key
         with pytest.raises(ValueError) as excinfo:
-            empty_schema["new_table"] = SchemaTable(name="new_table", type="TABLE")
+            empty_schema["new_table"] = SchemaTable(name="new_table")
         assert "Table 'new_table' already exists in the schema." in str(excinfo.value)
 
-    def test_add_with_string_and_table_obj(self, empty_schema):
-        # Add by string
-        empty_schema.add("s_tbl")
-        assert "s_tbl" in empty_schema
-        added = empty_schema["s_tbl"]
-        assert isinstance(added, SchemaTable)
-        assert added.name == "s_tbl"
-
-        # Add by SchemaTable instance
-        new_tbl = SchemaTable(name="another", type="TABLE")
-        empty_schema.add(new_tbl)
-        assert "another" in empty_schema
-
-        # Adding duplicate raises ValueError
-        with pytest.raises(ValueError) as excinfo:
-            empty_schema.add("s_tbl")
-        assert "Table 's_tbl' already exists in the schema." in str(excinfo.value)
-
-        with pytest.raises(ValueError) as excinfo2:
-            empty_schema.add(SchemaTable(name="another", type="TABLE"))
-        assert "Table 'another' already exists in the schema." in str(excinfo2.value)
-
-    def test_add_if_only_adds_nonexistent(self, empty_schema):
-        empty_schema.add_if("if_tbl")
-        assert "if_tbl" in empty_schema
+    def test_add_table_only_adds_nonexistent(self, empty_schema):
+        # First add should create
+        empty_schema.add_table("alpha")
+        assert "alpha" in empty_schema
         before_count = len(empty_schema.tables)
-        empty_schema.add_if("if_tbl")
+        # Second add should do nothing (no error, no duplicate)
+        empty_schema.add_table("alpha")
         assert len(empty_schema.tables) == before_count
 
+    def test_add_column_creates_table_and_simple_column(self, empty_schema):
+        # Add a simple column to a new table
+        empty_schema.add_column("tbl1", "colA")
+        assert "tbl1" in empty_schema
+        tbl1 = empty_schema["tbl1"]
+        assert "colA" in tbl1
+        colA = tbl1["colA"]
+        assert colA.fields is None
+        assert colA.type == "SIMPLE"
+
+    def test_add_column_nested_path_creates_records(self, empty_schema):
+        # Add nested path a.b.c in new table
+        empty_schema.add_column("tblX", "a.b.c")
+        tbl = empty_schema["tblX"]
+        # Top-level column 'a' should exist and be a RECORD
+        assert "a" in tbl
+        col_a = tbl["a"]
+        assert col_a.type == "RECORD"
+        assert isinstance(col_a.fields, list)
+        # Nested 'b' under a
+        col_b = next((c for c in col_a.fields if c.name == "b"), None)
+        assert col_b is not None
+        assert col_b.type == "RECORD"
+        # Deep nested 'c' under b
+        col_c = next((c for c in col_b.fields if c.name == "c"), None)
+        assert col_c is not None
+        assert col_c.type == "SIMPLE"
+
+        # Adding the same path again should not duplicate columns
+        before_a_fields = len(col_a.fields)
+        empty_schema.add_column("tblX", "a.b.c")
+        assert len(col_a.fields) == before_a_fields
+
+    def test_get_column_success_and_keyerror(self, populated_schema):
+        # Simple column retrieval
+        col_a = populated_schema.get_column("t1", "a")
+        assert isinstance(col_a, SchemaColumn)
+        assert col_a.name == "a"
+
+        # Nested column retrieval
+        col_b1 = populated_schema.get_column("t1", "b.b1")
+        assert col_b1.name == "b1"
+        assert col_b1.type == "SIMPLE"
+
+        # Nonexistent table
+        with pytest.raises(KeyError) as excinfo_tbl:
+            populated_schema.get_column("no_table", "any")
+        assert "Table 'no_table' not found in schema." in str(excinfo_tbl.value)
+
+        # Nonexistent column path
+        with pytest.raises(KeyError) as excinfo_col:
+            populated_schema.get_column("t1", "b.nope")
+        assert "Column 'b.nope' not found in table 't1'." in str(excinfo_col.value)
+
     def test_get_with_and_without_default(self, populated_schema):
-        # Existing table returns the table
         t1 = populated_schema.get("t1")
         assert isinstance(t1, SchemaTable)
         assert t1.name == "t1"
 
-        # Nonexistent with default returns default
-        default_val = "DEFAULT"
-        result = populated_schema.get("nope", default=default_val)
-        assert result == default_val
+        default = "DEF"
+        result = populated_schema.get("not_here", default=default)
+        assert result == default
 
-        # Nonexistent without default returns None
-        assert populated_schema.get("nope_other") is None
+        assert populated_schema.get("also_missing") is None
 
-    def test_add_table_column_creates_and_adds_column(self, empty_schema):
-        # Add a new table and column via add_table_column
-        empty_schema.add_table_column("tbl3", "colA")
-        assert "tbl3" in empty_schema
-        tbl3 = empty_schema["tbl3"]
-        assert "colA" in tbl3
-        assert tbl3["colA"].type == "STRING"
+    def test_is_struct_true_false_and_keyerror(self, empty_schema, populated_schema):
+        # Create a nested structure in empty_schema
+        empty_schema.add_column("tblS", "parent.child")
+        # 'parent' is RECORD because it has a child
+        assert empty_schema.is_struct("tblS", "parent") is True
+        # 'child' is SIMPLE
+        assert empty_schema.is_struct("tblS", "child") is False
 
-        # Add a second column to the same table
-        empty_schema.add_table_column("tbl3", SchemaColumn(name="colB", type="INTEGER"))
-        assert "colB" in tbl3
-        assert tbl3["colB"].type == "INTEGER"
-
-        # Adding existing column via add_table_column does not raise, and does not duplicate
-        before_count = len(tbl3.columns)
-        empty_schema.add_table_column("tbl3", "colB")
-        assert len(tbl3.columns) == before_count
-
-    def test_add_table_column_ignores_empty_and_asterisk(self, empty_schema):
-        # Using empty string should do nothing
-        empty_schema.add_table_column("tblX", "")
-        assert "tblX" not in empty_schema
-
-        # Using "*" should do nothing
-        empty_schema.add_table_column("tblY", "*")
-        assert "tblY" not in empty_schema
-
-        # If column object has name "*", ignore as well
-        starred = SchemaColumn(name="*", type="STRING")
-        empty_schema.add_table_column("tblZ", starred)
-        assert "tblZ" not in empty_schema
-
-    def test_is_struct_true_false_and_keyerror(self, populated_schema):
-        # 'b' column in 't1' is a STRUCT
+        # In populated_schema, 'b' in 't1' was defined with fields
         assert populated_schema.is_struct("t1", "b") is True
-
-        # 'a' column in 't1' is STRING, so False
+        # 'a' is SIMPLE
         assert populated_schema.is_struct("t1", "a") is False
-
         # Nonexistent column returns False
         assert populated_schema.is_struct("t1", "no_col") is False
 
-        # Nonexistent table raises KeyError
         with pytest.raises(KeyError) as excinfo:
-            populated_schema.is_struct("no_table", "whatever")
+            populated_schema.is_struct("no_table", "x")
         assert "Table 'no_table' not found in schema." in str(excinfo.value)
 
-    def test_struct_column_fields_are_retained(self, populated_schema):
-        # Ensure that nested fields exist on the struct column
-        tbl = populated_schema["t1"]
-        struct_col = tbl["b"]
-        assert struct_col.type == "STRUCT"
-        assert isinstance(struct_col.fields, list)
-        names = [f.name for f in struct_col.fields]
-        assert set(names) == {"b1", "b2"}
-
     def test_schema_and_table_pydantic_validation(self):
-        # SchemaColumn requires name and type
-        with pytest.raises(ValidationError):
-            SchemaColumn()
-
-        # SchemaTable requires name and type
+        # SchemaTable requires name; missing name should raise
         with pytest.raises(ValidationError):
             SchemaTable()
 
-        # Schema requires no special required fields (tables defaults to empty list)
+        # Schema requires no arguments (tables defaults to empty)
         s = Schema()
         assert isinstance(s, Schema)
         assert s.tables == []
 
+        # SchemaColumn validation tested above
 
-# Run `pytest` in the directory containing this file to execute the tests.
+
+# To run these tests, execute `pytest` in the directory containing this file.

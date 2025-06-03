@@ -356,7 +356,7 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
             type = self._table_store.get(target, DATATABLE_DEFAULT).type
 
         if type == "TABLE":
-            self._schema.add_if(target)
+            self._schema.add_table(target)
 
         parsed_expression = ParsedExpression(
             target=DataTable(name=target, type=type),
@@ -452,7 +452,7 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
                 parsed_expression.target,
                 source.alias_or_name,
             )
-            self._schema.add_if(source_table.name)
+            self._schema.add_table(source_table.name)
         elif isinstance(source, Subquery):
             # parse the subquery
             self._process_subquery(
@@ -637,9 +637,9 @@ class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
                     # take the tables and add them to the schema
                     for table in expr.tables:
                         if table.source.type == "TABLE":
-                            self._schema.add_if(table.source.name)
+                            self._schema.add_table(table.source.name)
                     if expr.target.type == "TABLE":
-                        self._schema.add_if(expr.target.name)
+                        self._schema.add_table(expr.target.name)
 
             except (sqlglot.errors.ParseError, sqlglot.errors.TokenError) as error:
                 logger.error("Error parsing: %s", error)

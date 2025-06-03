@@ -180,16 +180,30 @@ STRUCT_COLUMN_TYPES = {"STRUCT", "RECORD"}
 class SchemaColumn(BaseModel):
     """Schema column information."""
 
-    name: str = Field(..., description="The name of the column.")
-    type: str = Field(..., description="The type of the column.")
-    fields: Optional[list["SchemaColumn"]] = Field(
-        None, description="The fields of the column if it is a complex type."
-    )
+    name: str
+    fields: Optional[list["SchemaColumn"]] = None
+
+    @computed_field
+    @property
+    def type(self) -> str:
+        """Return the type of the object as a string.
+
+        If the object has no fields (`self.fields` is `None`), returns "SIMPLE".
+        Otherwise, returns "RECORD".
+
+        Returns:
+            str: The type of the object, either "SIMPLE" or "RECORD".
+
+        """
+        if self.fields is None:
+            return "SIMPLE"
+        return "RECORD"
 
 
-class SchemaTable(DataTable):
+class SchemaTable(BaseModel):
     """Schema table information."""
 
+    name: str
     columns: list[SchemaColumn] = Field(
         description="The columns of the table.", default_factory=list
     )
@@ -212,74 +226,6 @@ class SchemaTable(DataTable):
         if key in self:
             raise ValueError(f"Column '{key}' already exists in table '{self.name}'.")
         self.columns.append(value)
-
-    def add(
-        self,
-        column: str | SchemaColumn,
-        type: Optional[str] = None,  # pylint: disable=redefined-builtin
-    ) -> None:
-        """Add a column to the table.
-
-        If a string is provided, it is converted to a SchemaColumn with type "STRING".
-        Raises a ValueError if a column with the same name already exists in the table.
-
-        Args:
-            column (str | SchemaColumn): The column to add, either as a name (str) or a SchemaColumn
-                instance.
-            type (Optional[str]): The type of the column. If not provided, defaults to "STRING".
-
-        Raises:
-            ValueError: If a column with the same name already exists in the table.
-
-        """
-        if isinstance(column, str):
-            column = SchemaColumn(name=column, type=type or "STRING", fields=None)
-
-        if column.name in self:
-            raise ValueError(
-                f"Column '{column.name}' already exists in table '{self.name}'."
-            )
-        self.columns.append(column)
-
-    def add_if(
-        self,
-        column: str | SchemaColumn,
-        type: Optional[str] = None,  # pylint: disable=redefined-builtin
-    ) -> None:
-        """Add a column to the table if it does not already exist.
-
-        Args:
-            column (str | SchemaColumn): The column to add, either as a string (column name) or a
-                SchemaColumn instance.
-            type (Optional[str]): The type of the column. If not provided, defaults to "STRING".
-
-        Returns:
-            None
-
-        """
-        if isinstance(column, str):
-            column = SchemaColumn(name=column, type=type or "STRING", fields=None)
-
-        if column.name not in self:
-            self.columns.append(column)
-
-    def get_column(self, column: str) -> SchemaColumn:
-        """Get a column by its name.
-
-        Args:
-            column (str): The name of the column to retrieve.
-
-        Returns:
-            SchemaColumn: The column with the specified name.
-
-        Raises:
-            KeyError: If the column does not exist in the table.
-
-        """
-        for col in self.columns:
-            if col.name == column:
-                return col
-        raise KeyError(f"Column '{column}' not found in table '{self.name}'.")
 
 
 # Define two type variables for the key and value.
@@ -312,68 +258,110 @@ class Schema(BaseModel):
             raise ValueError(f"Table '{key}' already exists in the schema.")
         self.tables.append(value)
 
-    def add(self, table: str | SchemaTable) -> None:
-        """Add a table to the schema.
-
-        If a string is provided, it is converted to a SchemaTable with type "TABLE".
-        Raises a ValueError if a table with the same name already exists in the schema.
-
-        Args:
-            table (str | SchemaTable): The table to add, either as a name (str) or a SchemaTable instance.
-
-        Raises:
-            ValueError: If a table with the same name already exists in the schema.
-
-        """
-        if isinstance(table, str):
-            table = SchemaTable(name=table, type="TABLE")
-
-        if table.name in self:
-            raise ValueError(f"Table '{table.name}' already exists in the schema.")
-        self.tables.append(table)
-
-    def add_if(self, table: str | SchemaTable) -> None:
+    def add_table(
+        self, name: str, type: Optional[str] = None  # pylint: disable=redefined-builtin
+    ) -> None:
         """Add a table to the collection if it does not already exist.
 
         Args:
-            table (str | SchemaTable): The table to add, either as a string (table name) or a SchemaTable instance.
+            name (str): The name of the table to add.
+            type (Optional[str], optional): The type of the table (e.g., "TABLE", "VIEW").
+                Defaults to "TABLE".
 
         Returns:
             None
 
         """
-        if isinstance(table, str):
-            table = SchemaTable(name=table, type="TABLE")
-
-        if table.name not in self:
-            self.tables.append(table)
-
-    def add_table_column(self, table: str | SchemaTable, column: str | SchemaColumn):
-        """Add a table and its columns to the collection if not already present.
-
-        Args:
-            table (str | SchemaTable): The name of the table as a string or a SchemaTable object.
-            column (str | SchemaColumn): The column name as a string or a SchemaColumn object to add to the table.
-
-        Notes:
-            - If the table does not exist in the collection, it will be added.
-            - The specified columns will be added to the table using the `add_if` method of the SchemaTable.
-
-        """
-        # if column is an empty string or * do not add it
-        if (
-            isinstance(column, str)
-            and (not column or column == "*")
-            or (not isinstance(column, str) and column.name == "*")
-        ):
+        if name in self:
             return
 
-        if table not in self:
-            self.add(table)
+        if type is None:
+            type = "TABLE"
+        self.tables.append(SchemaTable(name=name))
 
-        table_name = table if isinstance(table, str) else table.name
+    def add_column(self, table_name: str, path: str) -> None:
+        """Add a column to the schema for the specified table, supporting nested (dot-delimited) column paths.
+
+        If the table does not exist, it is created. The column path is split by dots to support nested structures,
+        creating intermediate columns as needed. Intermediate columns are created as records (with empty fields lists),
+        while the final segment is created as a simple field (fields=None).
+
+        Args:
+            table_name (str): The name of the table to which the column should be added.
+            path (str): The dot-delimited path representing the (possibly nested) column to add.
+
+        Returns:
+            None
+
+        """
+        parts = path.split(".")
+
+        # 1. Find or create the table
+        if table_name in self:
+            tbl = self[table_name]
+        else:
+            tbl = SchemaTable(name=table_name)
+            self.tables.append(tbl)
+
+        # 2. Walk (and/or create) each segment of the path
+        current_columns = tbl.columns  # start at top‐level columns list
+
+        for idx, part in enumerate(parts):
+            # See if this segment already exists at the current level
+            try:
+                col = next(c for c in current_columns if c.name == part)
+            except StopIteration:
+                # Not found, so we create a new SchemaColumn
+                # If this is an intermediate level, we want fields=[] so that type="RECORD"
+                if idx < len(parts) - 1:
+                    col = SchemaColumn(name=part, fields=[])
+                else:
+                    # last segment: a SIMPLE field (fields=None)
+                    col = SchemaColumn(name=part, fields=None)
+                current_columns.append(col)
+
+            # If this is not the last part, advance into its .fields (and ensure it's a list)
+            if idx < len(parts) - 1:
+                if col.fields is None:
+                    # convert a SIMPLE into a RECORD so we can descend
+                    col.fields = []
+                current_columns = col.fields  # descend into nested fields
+
+        # end of loop: the path has been created (or already existed) in nested form
+
+    def get_column(self, table_name: str, column_path: str) -> SchemaColumn | None:
+        """Retrieve a column from the schema by its table name and column path.
+
+        Args:
+            table_name (str): The name of the table containing the column.
+            column_path (str): The dot-delimited path to the column.
+
+        Returns:
+            SchemaColumn: The requested column.
+
+        Raises:
+            KeyError: If the table or column does not exist.
+
+        """
+        if table_name not in self:
+            raise KeyError(f"Table '{table_name}' not found in schema.")
         schema_table = self[table_name]
-        schema_table.add_if(column)
+
+        parts = column_path.split(".")
+        current_columns = schema_table.columns
+
+        col = None
+
+        for part in parts:
+            try:
+                col = next(c for c in current_columns if c.name == part)
+            except StopIteration as exc:
+                raise KeyError(
+                    f"Column '{column_path}' not found in table '{table_name}'."
+                ) from exc
+            current_columns = col.fields if col.fields else []
+
+        return col
 
     @overload
     def get(self, table_name: str, default: D) -> SchemaTable | D: ...
