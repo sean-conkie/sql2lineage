@@ -93,6 +93,16 @@ def query_with_struct(result: ParsedResult) -> bool:
     return True
 
 
+def multi_expression_with_struct(result: ParsedResult) -> bool:
+    """Test the struct SQL file."""
+
+    assert len(result.expressions) == 2
+    assert len(result.expressions[0].columns) == 12
+    assert len(result.expressions[1].columns) == 6
+
+    return True
+
+
 class TestParser:
     """TestParser."""
 
@@ -144,6 +154,11 @@ class TestParser:
                 query_with_struct,
                 id="query_with_struct",
             ),
+            pytest.param(
+                "tests/sql/multi_expression_with_struct.sql",
+                multi_expression_with_struct,
+                id="multi_expression_with_struct",
+            ),
         ],
     )
     def test_extract_lineage(
@@ -180,11 +195,46 @@ class TestParser:
         """Test the SQL parser with various SQL files."""
         parser = SQLLineageParser(dialect="bigquery")
         result = parser.extract_lineages_from_file("tests/sql", glob="*.sql")
-        assert len(result.expressions) == 8
+        assert len(result.expressions) == 10
 
     @pytest.mark.asyncio
     async def test_aextract_lineages_from_file(self):
         """Test the SQL parser with various SQL files."""
         parser = SQLLineageParser(dialect="bigquery")
         result = await parser.aextract_lineages_from_file("tests/sql", glob="*.sql")
-        assert len(result.expressions) == 8
+        assert len(result.expressions) == 10
+
+    def test_extract_lineages_with_schema(self):
+        """Test the SQL parser with various SQL files."""
+        parser = SQLLineageParser(dialect="bigquery")
+        result = parser.extract_lineages(
+            [
+                """select *
+  from new_customers
+;"""
+            ],
+            schema={
+                "tables": [
+                    {
+                        "name": "new_customers",
+                        "type": "TABLE",
+                        "columns": [
+                            {"name": "id", "type": "INTEGER"},
+                            {"name": "name", "type": "STRING"},
+                            {
+                                "name": "address",
+                                "type": "STRUCT",
+                                "fields": [
+                                    {"name": "address_line_1", "type": "STRING"},
+                                    {"name": "address_line_2", "type": "STRING"},
+                                    {"name": "city", "type": "STRING"},
+                                    {"name": "zip", "type": "STRING"},
+                                ],
+                            },
+                        ],
+                    }
+                ]
+            },
+        )
+        assert len(result.expressions) == 1
+        assert len(result.expressions[0].columns) == 6
