@@ -319,14 +319,18 @@ def find_roots(node: str, intermediate_nodes: SimpleTupleStore[str, str]) -> Lis
 
     """
     if node in intermediate_nodes:
-        return [
-            s
-            for sublist in [
-                find_roots(s, intermediate_nodes)
-                for s in intermediate_nodes.get_all(node)
+        try:
+            return [
+                s
+                for sublist in [
+                    find_roots(s, intermediate_nodes)
+                    for s in intermediate_nodes.get_all(node)
+                ]
+                for s in sublist
             ]
-            for s in sublist
-        ]
+        except RecursionError:
+            # If we hit a recursion error, return the node itself as a root
+            return [node]
     else:
         return [node]
 

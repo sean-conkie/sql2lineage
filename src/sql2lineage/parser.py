@@ -46,6 +46,8 @@ StrPath: TypeAlias = str | PathLike[str]
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.ERROR)
+sqlglot_logger = logging.getLogger("sqlglot")
+sqlglot_logger.propagate = False
 
 
 class SQLLineageParser:  # noqa: D101 # pylint: disable=missing-class-docstring
